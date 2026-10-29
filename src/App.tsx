@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { Layers, Plus } from "lucide-react";
-import { createProject, errorText, getAppInfo, listProjects } from "./api";
+import { createProject, errorText, getAppInfo, listProjects, listQueues } from "./api";
 import { useLibrary } from "./hooks/useLibrary";
 import { Sidebar } from "./components/Sidebar";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { PromptModal } from "./components/Modal";
 import { ToastProvider, useToast } from "./components/Toast";
+import { ProjectView } from "./components/ProjectView";
+import { QueueBoard } from "./components/QueueBoard";
 
 type View = { projectId: number; queueId: number | null } | null;
 
@@ -52,7 +54,20 @@ function Shell() {
       />
       <main className="main">
         {selected ? (
-          <div className="page"><h1>{selected.project.name}</h1></div>
+          view?.queueId != null ? (
+            <QueueRoute
+              projectId={selected.project.id}
+              queueId={view.queueId}
+              projectName={selected.project.name}
+              onBack={() => setView({ projectId: selected.project.id, queueId: null })}
+            />
+          ) : (
+            <ProjectView
+              summary={selected}
+              onChanged={refreshProjects}
+              onOpenQueue={(queueId) => setView({ projectId: selected.project.id, queueId })}
+            />
+          )
         ) : (
           <div className="empty">
             <div className="empty-inner">
@@ -81,6 +96,20 @@ function Shell() {
       )}
     </div>
   );
+}
+
+function QueueRoute({ projectId, queueId, projectName, onBack }: {
+  projectId: number;
+  queueId: number;
+  projectName: string;
+  onBack: () => void;
+}) {
+  const [queues] = useLibrary(() => listQueues(projectId), [projectId]);
+  const queue = queues?.find((q) => q.queue.id === queueId)?.queue;
+  useEffect(() => {
+    if (queues && !queue) onBack();
+  }, [queues, queue, onBack]);
+  return queue ? <QueueBoard key={queue.id} queue={queue} projectName={projectName} onBack={onBack} /> : null;
 }
 
 export default function App() {
