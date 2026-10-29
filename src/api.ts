@@ -109,7 +109,8 @@ export const SUPPORTED_EXTENSIONS = ["stl", "3mf", "obj", "step", "stp", "amf", 
 export const getAppInfo = () => invoke<AppInfo>("get_app_info");
 export const setSetting = (key: "theme" | "slicer_path", value: string) =>
   invoke<void>("set_setting", { key, value });
-export const moveLibrary = (newPath: string) => invoke<string>("move_library", { newPath });
+export const moveLibrary = (newPath: string) =>
+  invoke<{ libraryPath: string; warning: string | null }>("move_library", { newPath });
 
 export const listProjects = () => invoke<ProjectSummary[]>("list_projects");
 export const createProject = (name: string, description?: string, color?: string) =>

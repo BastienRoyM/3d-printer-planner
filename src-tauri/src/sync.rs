@@ -116,7 +116,8 @@ pub fn sync_queue(conn: &Connection, lib: &Path, queue_id: i64) -> AppResult<boo
     let originals = originals(conn, queue_id)?;
     for name in folder_files(lib, &queue.folder_rel)? {
         let rel = format!("{}/{}", queue.folder_rel, name);
-        if known.contains(&rel) {
+        // Only slicer output is attached automatically; new models stay unassigned for the user.
+        if known.contains(&rel) || library::file_kind(&name) == "model" {
             continue;
         }
         if let Some(item_id) = match_item(&name, &originals) {
@@ -294,6 +295,24 @@ mod tests {
         assert_eq!(
             queue_for_path(&fx.conn, &fx.lib, &fx.lib.join("planner.db")).unwrap(),
             None
+        );
+    }
+
+    #[test]
+    fn new_model_files_stay_unassigned() {
+        let fx = fixture();
+        let p = source(&fx, "s", "bracket.stl", "x");
+        let item = repo::import_files(&fx.conn, &fx.lib, fx.queue_id, &[p])
+            .unwrap()
+            .imported
+            .remove(0);
+        let folder = fx.lib.join("projects/helmet/pla-black");
+        std::fs::write(folder.join("bracket_v2.stl"), "x").unwrap();
+        sync_queue(&fx.conn, &fx.lib, fx.queue_id).unwrap();
+        assert_eq!(repo::get_item(&fx.conn, item.id).unwrap().files.len(), 1);
+        assert_eq!(
+            unassigned(&fx.conn, &fx.lib, fx.queue_id).unwrap(),
+            ["bracket_v2.stl"]
         );
     }
 }

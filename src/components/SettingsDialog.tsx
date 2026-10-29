@@ -38,8 +38,9 @@ export function SettingsDialog({ info, onChanged, onClose }: {
     if (typeof dir !== "string") return;
     setMoving(true);
     try {
-      const path = await moveLibrary(dir);
-      toast(`Library moved to ${path}`);
+      const res = await moveLibrary(dir);
+      toast(`Library moved to ${res.libraryPath}`);
+      if (res.warning) toast(res.warning, "error");
       onChanged();
     } catch (e) {
       toast(errorText(e), "error");

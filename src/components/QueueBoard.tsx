@@ -176,9 +176,8 @@ export function QueueBoard({ queue, projectName, onBack }: { queue: Queue; proje
     const list = columns[to];
     const current = list.findIndex((i) => i.id === active.id);
     const overIdx = list.findIndex((i) => i.id === over.id);
-    const original = items?.find((i) => i.id === active.id);
-    // Cross-column moves were already placed by onDragOver; same-column moves land on the hovered card.
-    const index = original?.status !== to || overIdx < 0 ? Math.max(0, current) : overIdx;
+    // `list` already holds the card where onDragOver put it, so the hovered slot is the target.
+    const index = overIdx >= 0 ? overIdx : Math.max(0, current);
     run(Number(active.id), { type: "moveTo", status: to }, index);
   };
 

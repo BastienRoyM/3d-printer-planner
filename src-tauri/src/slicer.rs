@@ -21,12 +21,15 @@ pub fn detect() -> Option<PathBuf> {
                     return Some(dir.join(exe));
                 }
             }
-            let found = std::fs::read_dir(&dir).ok().and_then(|entries| {
-                entries.filter_map(Result::ok).map(|e| e.path()).find(|p| {
-                    let name = p.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-                    name.ends_with(".exe") && name.contains("slicer")
+            let names: Vec<String> = std::fs::read_dir(&dir)
+                .map(|entries| {
+                    entries
+                        .filter_map(Result::ok)
+                        .map(|e| e.file_name().to_string_lossy().into_owned())
+                        .collect()
                 })
-            });
+                .unwrap_or_default();
+            let found = pick_slicer_exe(&names).map(|n| dir.join(n));
             if found.is_some() {
                 return found;
             }
@@ -42,6 +45,15 @@ pub fn detect() -> Option<PathBuf> {
     {
         None
     }
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+/// Picks the slicer program among an install folder's file names, skipping uninstallers.
+pub fn pick_slicer_exe<S: AsRef<str>>(names: &[S]) -> Option<&str> {
+    names.iter().map(AsRef::as_ref).find(|n| {
+        let lower = n.to_lowercase();
+        lower.ends_with(".exe") && lower.contains("slicer") && !lower.starts_with("unins")
+    })
 }
 
 fn spawn(cmd: &mut Command) -> AppResult<()> {
@@ -92,9 +104,9 @@ fn open_default(file: &Path) -> AppResult<()> {
 pub fn reveal(file: &Path) -> AppResult<()> {
     #[cfg(windows)]
     {
-        let mut arg = std::ffi::OsString::from("/select,");
-        arg.push(file);
-        spawn(Command::new("explorer").arg(arg))
+        // Explorer needs the path quoted after "/select," rather than the whole argument quoted.
+        use std::os::windows::process::CommandExt;
+        spawn(Command::new("explorer").raw_arg(format!("/select,\"{}\"", file.display())))
     }
     #[cfg(target_os = "macos")]
     {
@@ -103,5 +115,22 @@ pub fn reveal(file: &Path) -> AppResult<()> {
     #[cfg(not(any(windows, target_os = "macos")))]
     {
         spawn(Command::new("xdg-open").arg(file.parent().unwrap_or(file)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pick_slicer_exe_skips_uninstaller() {
+        let names = [
+            "Uninstall ElegooSlicer.exe",
+            "unins000.exe",
+            "ElegooSlicer-app.exe",
+            "readme.txt",
+        ];
+        assert_eq!(pick_slicer_exe(&names), Some("ElegooSlicer-app.exe"));
+        assert_eq!(pick_slicer_exe(&["unins000.exe"]), None);
     }
 }

@@ -99,7 +99,7 @@ pub fn set_setting(state: State<AppState>, key: String, value: String) -> AppRes
 }
 
 #[tauri::command]
-pub fn move_library(app: AppHandle, state: State<AppState>, new_path: String) -> AppResult<String> {
+pub fn move_library(app: AppHandle, state: State<AppState>, new_path: String) -> AppResult<MoveResult> {
     let new_lib = PathBuf::from(new_path);
     let (old_lib, config_file, old_watcher) = {
         let mut inner = state
@@ -112,16 +112,22 @@ pub fn move_library(app: AppHandle, state: State<AppState>, new_path: String) ->
     // Dropped outside the lock: the watcher thread may be waiting on it.
     drop(old_watcher);
 
-    let result = library::move_library(&old_lib, &new_lib);
-    let lib = if result.is_ok() { new_lib } else { old_lib };
-    if result.is_ok() {
+    // Once the files are at the new location the move is done, whatever happens to the old folder.
+    let result = library::move_library(&old_lib, &new_lib).and_then(|warning| {
         config::save(
             &config_file,
             &config::AppConfig {
-                library_path: lib.clone(),
+                library_path: new_lib.clone(),
             },
         )?;
-    }
+        Ok(warning)
+    });
+    let lib = match &result {
+        Ok(_) => new_lib,
+        Err(_) if old_lib.join("planner.db").exists() => old_lib,
+        // The move failed after the old database was gone: the copy is the only complete library.
+        Err(_) => new_lib,
+    };
     let (conn, w) = open_library(&app, lib.clone())?;
     {
         let mut inner = state
@@ -132,9 +138,18 @@ pub fn move_library(app: AppHandle, state: State<AppState>, new_path: String) ->
         inner.watcher = Some(w);
         inner.lib = lib.clone();
     }
-    result?;
     let _ = app.emit(LIBRARY_CHANGED, ());
-    Ok(lib.display().to_string())
+    Ok(MoveResult {
+        library_path: lib.display().to_string(),
+        warning: result?,
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveResult {
+    library_path: String,
+    warning: Option<String>,
 }
 
 #[tauri::command]

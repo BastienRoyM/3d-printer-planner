@@ -118,9 +118,25 @@ pub fn copy_dir(from: &Path, to: &Path) -> AppResult<()> {
     Ok(())
 }
 
+/// Copies the library to `to`, then deletes the old copy as a best effort.
+/// Once the copy is complete the move counts as done; a failed cleanup only returns a warning.
+pub fn copy_then_remove(from: &Path, to: &Path) -> AppResult<Option<String>> {
+    if let Err(e) = copy_dir(from, to) {
+        let _ = std::fs::remove_dir_all(to);
+        return Err(e);
+    }
+    Ok(std::fs::remove_dir_all(from).err().map(|e| {
+        format!(
+            "The library was copied, but the old folder {} could not be fully removed: {e}",
+            from.display()
+        )
+    }))
+}
+
 /// Moves the whole library to `to`, which must not exist yet or be an empty folder.
-/// The database must be closed by the caller first.
-pub fn move_library(from: &Path, to: &Path) -> AppResult<()> {
+/// The database must be closed by the caller first. Returns a warning when the old folder
+/// could not be cleaned up; the library at `to` is complete either way.
+pub fn move_library(from: &Path, to: &Path) -> AppResult<Option<String>> {
     let canon = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
     let (from_c, to_parent_c) = (canon(from), to.parent().map(canon));
     let to_c = to_parent_c
@@ -143,15 +159,11 @@ pub fn move_library(from: &Path, to: &Path) -> AppResult<()> {
     if let Some(parent) = to.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    if std::fs::rename(from, to).is_err() {
-        // Different drive: copy everything, then remove the old copy only once the copy succeeded.
-        if let Err(e) = copy_dir(from, to) {
-            let _ = std::fs::remove_dir_all(to);
-            return Err(e);
-        }
-        std::fs::remove_dir_all(from)?;
+    if std::fs::rename(from, to).is_ok() {
+        return Ok(None);
     }
-    Ok(())
+    // Different drive, or a file is held open: copy everything instead.
+    copy_then_remove(from, to)
 }
 
 #[cfg(test)]
@@ -229,5 +241,26 @@ mod tests {
             std::fs::read_to_string(dir.path().join("z/b/c/f.stl")).unwrap(),
             "x"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_then_remove_succeeds_when_old_copy_cannot_be_deleted() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("lib");
+        let locked = from.join("projects/a");
+        std::fs::create_dir_all(&locked).unwrap();
+        std::fs::write(from.join("planner.db"), "db").unwrap();
+        std::fs::write(locked.join("x.stl"), "x").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let to = dir.path().join("new");
+
+        let warning = copy_then_remove(&from, &to).unwrap();
+
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(warning.is_some());
+        assert!(to.join("planner.db").exists());
+        assert!(to.join("projects/a/x.stl").exists());
     }
 }
