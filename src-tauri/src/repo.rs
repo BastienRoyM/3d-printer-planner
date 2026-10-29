@@ -400,6 +400,45 @@ pub fn column_len(conn: &Connection, queue_id: i64, status: &str) -> AppResult<u
     Ok(n as usize)
 }
 
+/// The file "Open in slicer" uses: the newest slicer project, else the original.
+pub fn open_target(item: &Item) -> &ItemFile {
+    item.files
+        .iter()
+        .filter(|f| f.kind == "project" && !f.is_original)
+        .max_by(|a, b| (&a.added_at, a.id).cmp(&(&b.added_at, b.id)))
+        .or_else(|| item.files.iter().find(|f| f.is_original))
+        .or_else(|| item.files.first())
+        .expect("every item has at least its original file")
+}
+
+fn queue_file_rel(conn: &Connection, queue_id: i64, file_name: &str) -> AppResult<String> {
+    if file_name.contains(['/', '\\']) || file_name.starts_with('.') {
+        return Err(AppError::Invalid(format!("invalid file name: {file_name}")));
+    }
+    let q = get_queue(conn, queue_id)?;
+    Ok(format!("{}/{}", q.folder_rel, file_name))
+}
+
+/// Attaches a file that already sits in the item's queue folder as a derived file.
+pub fn attach_file(conn: &Connection, item_id: i64, file_name: &str) -> AppResult<Item> {
+    let item = get_item(conn, item_id)?;
+    let rel = queue_file_rel(conn, item.queue_id, file_name)?;
+    conn.execute(
+        "INSERT OR IGNORE INTO item_files (item_id, rel_path, kind, is_original) VALUES (?1, ?2, ?3, 0)",
+        params![item_id, rel, library::file_kind(file_name)],
+    )?;
+    get_item(conn, item_id)
+}
+
+/// Turns a file that already sits in the queue folder into a new item.
+pub fn item_from_file(conn: &Connection, lib: &Path, queue_id: i64, file_name: &str) -> AppResult<Item> {
+    let rel = queue_file_rel(conn, queue_id, file_name)?;
+    if !library::is_supported(&library::abs(lib, &rel)) {
+        return Err(AppError::Invalid(format!("unsupported or missing file: {file_name}")));
+    }
+    insert_item_for_file(conn, queue_id, &rel)
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
