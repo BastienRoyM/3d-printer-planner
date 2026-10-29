@@ -5,7 +5,8 @@ import { renderThumbnail, thumbExt } from "../lib/thumbnail";
 
 // Renders one thumbnail at a time so a big drop does not freeze the UI.
 let chain: Promise<unknown> = Promise.resolve();
-const attempted = new Set<number>();
+// One render per item, shared by every mounted thumbnail of that item.
+const renders = new Map<number, Promise<string | null>>();
 
 function enqueue<T>(job: () => Promise<T>): Promise<T> {
   const next = chain.then(job, job);
@@ -21,15 +22,21 @@ export function Thumbnail({ item, size = "md" }: { item: Item; size?: "sm" | "md
   useEffect(() => setSrc(item.thumbnail), [item.thumbnail]);
 
   useEffect(() => {
-    if (src || !ext || attempted.has(item.id)) return;
-    attempted.add(item.id);
+    if (src || !ext) return;
+    let job = renders.get(item.id);
+    if (!job) {
+      job = enqueue(async () => {
+        const url = await renderThumbnail(await readModel(item.id), ext);
+        await saveThumbnail(item.id, url);
+        return url;
+      }).catch((e) => {
+        console.warn("thumbnail failed", item.name, e);
+        return null;
+      });
+      renders.set(item.id, job);
+    }
     let alive = true;
-    enqueue(async () => {
-      const bytes = await readModel(item.id);
-      const url = await renderThumbnail(bytes, ext);
-      await saveThumbnail(item.id, url);
-      if (alive) setSrc(url);
-    }).catch((e) => console.warn("thumbnail failed", item.name, e));
+    job.then((url) => alive && url && setSrc(url));
     return () => {
       alive = false;
     };
