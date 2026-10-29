@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::Deserialize;
 
 use crate::error::AppResult;
@@ -65,7 +65,10 @@ pub fn apply(conn: &Connection, item_id: i64, action: Action, index: Option<usiz
     let item = repo::get_item(conn, item_id)?;
     let tx = conn.unchecked_transaction()?;
     let (target, place) = match action {
-        Action::Start | Action::MoveTo { status: Status::Printing } => {
+        Action::Start
+        | Action::MoveTo {
+            status: Status::Printing,
+        } => {
             if item.status != "printing" {
                 log(conn, item_id, "started", item.copies_per_plate)?;
             }
@@ -76,9 +79,16 @@ pub fn apply(conn: &Connection, item_id: i64, action: Action, index: Option<usiz
             let done = item.qty_done + added;
             set_done(conn, item_id, done)?;
             log(conn, item_id, "finished", added)?;
-            if done >= item.qty_total { (Status::Done, Place::Top) } else { (Status::Todo, Place::Top) }
+            if done >= item.qty_total {
+                (Status::Done, Place::Top)
+            } else {
+                (Status::Todo, Place::Top)
+            }
         }
-        Action::Fail | Action::MoveTo { status: Status::Failed } => {
+        Action::Fail
+        | Action::MoveTo {
+            status: Status::Failed,
+        } => {
             if item.status != "failed" {
                 log(conn, item_id, "failed", item.copies_per_plate)?;
             }
@@ -96,7 +106,11 @@ pub fn apply(conn: &Connection, item_id: i64, action: Action, index: Option<usiz
             if item.status == "printing" {
                 log(conn, item_id, "reset", 0)?;
             }
-            let place = if item.status == "todo" { Place::End } else { Place::Top };
+            let place = if item.status == "todo" {
+                Place::End
+            } else {
+                Place::Top
+            };
             (Status::Todo, place)
         }
         Action::ResetProgress => {
@@ -138,11 +152,17 @@ pub fn history(conn: &Connection, item_id: i64) -> AppResult<Vec<PrintEvent>> {
 mod tests {
     use super::*;
     use crate::models::ItemPatch;
-    use crate::repo::{self, tests::{fixture, source, Fx}};
+    use crate::repo::{
+        self,
+        tests::{Fx, fixture, source},
+    };
 
     fn item(fx: &Fx, name: &str, total: i64, done: i64, cpp: i64) -> i64 {
         let p = source(fx, "s", &format!("{name}.stl"), "x");
-        let it = repo::import_files(&fx.conn, &fx.lib, fx.queue_id, &[p]).unwrap().imported.remove(0);
+        let it = repo::import_files(&fx.conn, &fx.lib, fx.queue_id, &[p])
+            .unwrap()
+            .imported
+            .remove(0);
         let patch = ItemPatch {
             qty_total: Some(total),
             qty_done: Some(done),
@@ -153,7 +173,11 @@ mod tests {
     }
 
     fn kinds(fx: &Fx, id: i64) -> Vec<(String, i64)> {
-        history(&fx.conn, id).unwrap().into_iter().map(|e| (e.kind, e.copies)).collect()
+        history(&fx.conn, id)
+            .unwrap()
+            .into_iter()
+            .map(|e| (e.kind, e.copies))
+            .collect()
     }
 
     #[test]

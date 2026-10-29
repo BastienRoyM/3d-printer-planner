@@ -109,7 +109,9 @@ mod tests {
     fn default_printer_seeded() {
         let dir = tempfile::tempdir().unwrap();
         let conn = open(&dir.path().join("planner.db")).unwrap();
-        let n: i64 = conn.query_row("SELECT COUNT(*) FROM printers", [], |r| r.get(0)).unwrap();
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM printers", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 1);
     }
 }

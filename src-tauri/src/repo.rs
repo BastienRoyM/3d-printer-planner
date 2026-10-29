@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::Serialize;
 
 use crate::error::{AppError, AppResult};
@@ -12,7 +12,8 @@ const QUEUE_COLS: &str = "id, project_id, name, folder_rel";
 const ITEM_COLS: &str = "id, queue_id, name, status, qty_total, qty_done, copies_per_plate, material, \
     color, notes, est_minutes, est_grams, printer_id, thumbnail, sort, created_at, updated_at";
 const FILE_COLS: &str = "id, item_id, rel_path, kind, is_original, added_at";
-const STATUS_ORDER: &str = "CASE status WHEN 'todo' THEN 0 WHEN 'printing' THEN 1 WHEN 'done' THEN 2 ELSE 3 END";
+const STATUS_ORDER: &str =
+    "CASE status WHEN 'todo' THEN 0 WHEN 'printing' THEN 1 WHEN 'done' THEN 2 ELSE 3 END";
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,7 +35,12 @@ fn project_from_row(r: &Row) -> rusqlite::Result<Project> {
 }
 
 fn queue_from_row(r: &Row) -> rusqlite::Result<Queue> {
-    Ok(Queue { id: r.get(0)?, project_id: r.get(1)?, name: r.get(2)?, folder_rel: r.get(3)? })
+    Ok(Queue {
+        id: r.get(0)?,
+        project_id: r.get(1)?,
+        name: r.get(2)?,
+        folder_rel: r.get(3)?,
+    })
 }
 
 fn file_from_row(r: &Row) -> rusqlite::Result<ItemFile> {
@@ -75,7 +81,9 @@ fn load_files(conn: &Connection, item: &mut Item) -> AppResult<()> {
     let mut stmt = conn.prepare(&format!(
         "SELECT {FILE_COLS} FROM item_files WHERE item_id = ?1 ORDER BY is_original DESC, added_at"
     ))?;
-    item.files = stmt.query_map([item.id], file_from_row)?.collect::<Result<_, _>>()?;
+    item.files = stmt
+        .query_map([item.id], file_from_row)?
+        .collect::<Result<_, _>>()?;
     Ok(())
 }
 
@@ -87,9 +95,13 @@ fn plates_remaining(total: i64, done: i64, cpp: i64) -> i64 {
 // ---------- projects ----------
 
 pub fn get_project(conn: &Connection, id: i64) -> AppResult<Project> {
-    conn.query_row(&format!("SELECT {PROJECT_COLS} FROM projects WHERE id = ?1"), [id], project_from_row)
-        .optional()?
-        .ok_or_else(|| AppError::NotFound(format!("project {id}")))
+    conn.query_row(
+        &format!("SELECT {PROJECT_COLS} FROM projects WHERE id = ?1"),
+        [id],
+        project_from_row,
+    )
+    .optional()?
+    .ok_or_else(|| AppError::NotFound(format!("project {id}")))
 }
 
 pub fn create_project(
@@ -123,7 +135,10 @@ pub fn update_project(
     archived: Option<bool>,
 ) -> AppResult<Project> {
     let current = get_project(conn, id)?;
-    let name = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).unwrap_or(current.name);
+    let name = name
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .unwrap_or(current.name);
     conn.execute(
         "UPDATE projects SET name = ?2, description = ?3, color = ?4, archived = ?5 WHERE id = ?1",
         params![
@@ -145,7 +160,9 @@ pub fn delete_project(conn: &Connection, lib: &Path, id: i64) -> AppResult<()> {
 }
 
 pub fn list_projects(conn: &Connection) -> AppResult<Vec<ProjectSummary>> {
-    let mut stmt = conn.prepare(&format!("SELECT {PROJECT_COLS} FROM projects ORDER BY archived, sort, id"))?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {PROJECT_COLS} FROM projects ORDER BY archived, sort, id"
+    ))?;
     let projects: Vec<Project> = stmt.query_map([], project_from_row)?.collect::<Result<_, _>>()?;
     let mut items = conn.prepare(
         "SELECT i.qty_total, i.qty_done, i.copies_per_plate, i.est_minutes, i.est_grams, i.status
@@ -190,9 +207,13 @@ pub fn list_projects(conn: &Connection) -> AppResult<Vec<ProjectSummary>> {
 // ---------- queues ----------
 
 pub fn get_queue(conn: &Connection, id: i64) -> AppResult<Queue> {
-    conn.query_row(&format!("SELECT {QUEUE_COLS} FROM queues WHERE id = ?1"), [id], queue_from_row)
-        .optional()?
-        .ok_or_else(|| AppError::NotFound(format!("queue {id}")))
+    conn.query_row(
+        &format!("SELECT {QUEUE_COLS} FROM queues WHERE id = ?1"),
+        [id],
+        queue_from_row,
+    )
+    .optional()?
+    .ok_or_else(|| AppError::NotFound(format!("queue {id}")))
 }
 
 pub fn all_queues(conn: &Connection) -> AppResult<Vec<Queue>> {
@@ -238,7 +259,9 @@ pub fn list_queues(conn: &Connection, project_id: i64) -> AppResult<Vec<QueueSum
     let mut stmt = conn.prepare(&format!(
         "SELECT {QUEUE_COLS} FROM queues WHERE project_id = ?1 ORDER BY sort, id"
     ))?;
-    let queues: Vec<Queue> = stmt.query_map([project_id], queue_from_row)?.collect::<Result<_, _>>()?;
+    let queues: Vec<Queue> = stmt
+        .query_map([project_id], queue_from_row)?
+        .collect::<Result<_, _>>()?;
     let mut out = Vec::with_capacity(queues.len());
     for queue in queues {
         let (total_prints, done_prints, printing_count): (i64, i64, i64) = conn.query_row(
@@ -256,7 +279,13 @@ pub fn list_queues(conn: &Connection, project_id: i64) -> AppResult<Vec<QueueSum
             )
             .optional()?;
         let next_item = next_id.map(|id| get_item(conn, id)).transpose()?;
-        out.push(QueueSummary { queue, total_prints, done_prints, printing_count, next_item });
+        out.push(QueueSummary {
+            queue,
+            total_prints,
+            done_prints,
+            printing_count,
+            next_item,
+        });
     }
     Ok(out)
 }
@@ -265,7 +294,11 @@ pub fn list_queues(conn: &Connection, project_id: i64) -> AppResult<Vec<QueueSum
 
 pub fn get_item(conn: &Connection, id: i64) -> AppResult<Item> {
     let mut item = conn
-        .query_row(&format!("SELECT {ITEM_COLS} FROM items WHERE id = ?1"), [id], item_from_row)
+        .query_row(
+            &format!("SELECT {ITEM_COLS} FROM items WHERE id = ?1"),
+            [id],
+            item_from_row,
+        )
         .optional()?
         .ok_or_else(|| AppError::NotFound(format!("item {id}")))?;
     load_files(conn, &mut item)?;
@@ -276,7 +309,9 @@ pub fn list_items(conn: &Connection, queue_id: i64) -> AppResult<Vec<Item>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT {ITEM_COLS} FROM items WHERE queue_id = ?1 ORDER BY {STATUS_ORDER}, sort, id"
     ))?;
-    let mut items: Vec<Item> = stmt.query_map([queue_id], item_from_row)?.collect::<Result<_, _>>()?;
+    let mut items: Vec<Item> = stmt
+        .query_map([queue_id], item_from_row)?
+        .collect::<Result<_, _>>()?;
     for item in &mut items {
         load_files(conn, item)?;
     }
@@ -311,13 +346,24 @@ pub fn insert_item_for_file(conn: &Connection, queue_id: i64, rel_path: &str) ->
     get_item(conn, id)
 }
 
-pub fn import_files(conn: &Connection, lib: &Path, queue_id: i64, paths: &[PathBuf]) -> AppResult<ImportResult> {
+pub fn import_files(
+    conn: &Connection,
+    lib: &Path,
+    queue_id: i64,
+    paths: &[PathBuf],
+) -> AppResult<ImportResult> {
     let queue = get_queue(conn, queue_id)?;
     let folder = library::abs(lib, &queue.folder_rel);
     std::fs::create_dir_all(&folder)?;
-    let mut res = ImportResult { imported: Vec::new(), skipped: Vec::new() };
+    let mut res = ImportResult {
+        imported: Vec::new(),
+        skipped: Vec::new(),
+    };
     for src in paths {
-        let display = src.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let display = src
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         if !library::is_supported(src) {
             res.skipped.push(display);
             continue;
@@ -332,7 +378,12 @@ pub fn import_files(conn: &Connection, lib: &Path, queue_id: i64, paths: &[PathB
 
 pub fn update_item(conn: &Connection, id: i64, patch: &ItemPatch) -> AppResult<Item> {
     let cur = get_item(conn, id)?;
-    let name = patch.name.clone().map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).unwrap_or(cur.name);
+    let name = patch
+        .name
+        .clone()
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .unwrap_or(cur.name);
     let qty_total = patch.qty_total.unwrap_or(cur.qty_total).max(1);
     let qty_done = patch.qty_done.unwrap_or(cur.qty_done).clamp(0, qty_total);
     let cpp = patch.copies_per_plate.unwrap_or(cur.copies_per_plate).max(1);
@@ -358,7 +409,10 @@ pub fn update_item(conn: &Connection, id: i64, patch: &ItemPatch) -> AppResult<I
 }
 
 pub fn set_thumbnail(conn: &Connection, id: i64, data_url: &str) -> AppResult<()> {
-    conn.execute("UPDATE items SET thumbnail = ?2 WHERE id = ?1", params![id, data_url])?;
+    conn.execute(
+        "UPDATE items SET thumbnail = ?2 WHERE id = ?1",
+        params![id, data_url],
+    )?;
     Ok(())
 }
 
@@ -374,9 +428,8 @@ pub fn delete_item(conn: &Connection, lib: &Path, id: i64) -> AppResult<()> {
 /// Sets the item's status column and places it at `index` within that column.
 pub fn reorder(conn: &Connection, item_id: i64, status: &str, index: usize) -> AppResult<()> {
     let item = get_item(conn, item_id)?;
-    let mut stmt = conn.prepare(
-        "SELECT id FROM items WHERE queue_id = ?1 AND status = ?2 AND id != ?3 ORDER BY sort, id",
-    )?;
+    let mut stmt = conn
+        .prepare("SELECT id FROM items WHERE queue_id = ?1 AND status = ?2 AND id != ?3 ORDER BY sort, id")?;
     let mut ids: Vec<i64> = stmt
         .query_map(params![item.queue_id, status, item_id], |r| r.get(0))?
         .collect::<Result<_, _>>()?;
@@ -389,15 +442,6 @@ pub fn reorder(conn: &Connection, item_id: i64, status: &str, index: usize) -> A
         conn.execute("UPDATE items SET sort = ?2 WHERE id = ?1", params![id, i as i64])?;
     }
     Ok(())
-}
-
-pub fn column_len(conn: &Connection, queue_id: i64, status: &str) -> AppResult<usize> {
-    let n: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM items WHERE queue_id = ?1 AND status = ?2",
-        params![queue_id, status],
-        |r| r.get(0),
-    )?;
-    Ok(n as usize)
 }
 
 /// The file "Open in slicer" uses: the newest slicer project, else the original.
@@ -434,9 +478,28 @@ pub fn attach_file(conn: &Connection, item_id: i64, file_name: &str) -> AppResul
 pub fn item_from_file(conn: &Connection, lib: &Path, queue_id: i64, file_name: &str) -> AppResult<Item> {
     let rel = queue_file_rel(conn, queue_id, file_name)?;
     if !library::is_supported(&library::abs(lib, &rel)) {
-        return Err(AppError::Invalid(format!("unsupported or missing file: {file_name}")));
+        return Err(AppError::Invalid(format!(
+            "unsupported or missing file: {file_name}"
+        )));
     }
     insert_item_for_file(conn, queue_id, &rel)
+}
+
+// ---------- settings ----------
+
+pub fn get_setting(conn: &Connection, key: &str) -> AppResult<Option<String>> {
+    Ok(conn
+        .query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0))
+        .optional()?)
+}
+
+pub fn set_setting(conn: &Connection, key: &str, value: &str) -> AppResult<()> {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -462,7 +525,13 @@ pub(crate) mod tests {
         let conn = db::open(&lib.join("planner.db")).unwrap();
         let p = create_project(&conn, &lib, "Helmet", None, None).unwrap();
         let q = create_queue(&conn, &lib, p.id, "PLA Black").unwrap();
-        Fx { _dir: dir, lib, src, conn, queue_id: q.id }
+        Fx {
+            _dir: dir,
+            lib,
+            src,
+            conn,
+            queue_id: q.id,
+        }
     }
 
     pub fn source(fx: &Fx, sub: &str, name: &str, content: &str) -> PathBuf {
@@ -499,7 +568,10 @@ pub(crate) mod tests {
         assert!(res.imported[0].files[0].rel_path.ends_with("bracket (2).stl"));
         let folder = fx.lib.join("projects/helmet/pla-black");
         assert_eq!(fs::read_to_string(folder.join("bracket.stl")).unwrap(), "first");
-        assert_eq!(fs::read_to_string(folder.join("bracket (2).stl")).unwrap(), "second");
+        assert_eq!(
+            fs::read_to_string(folder.join("bracket (2).stl")).unwrap(),
+            "second"
+        );
     }
 
     #[test]
@@ -520,10 +592,20 @@ pub(crate) mod tests {
     fn update_item_clamps() {
         let fx = fixture();
         let a = source(&fx, "a", "a.stl", "x");
-        let item = import_files(&fx.conn, &fx.lib, fx.queue_id, &[a]).unwrap().imported.remove(0);
-        let patch = ItemPatch { qty_total: Some(2), ..Default::default() };
+        let item = import_files(&fx.conn, &fx.lib, fx.queue_id, &[a])
+            .unwrap()
+            .imported
+            .remove(0);
+        let patch = ItemPatch {
+            qty_total: Some(2),
+            ..Default::default()
+        };
         update_item(&fx.conn, item.id, &patch).unwrap();
-        let patch = ItemPatch { qty_done: Some(5), copies_per_plate: Some(0), ..Default::default() };
+        let patch = ItemPatch {
+            qty_done: Some(5),
+            copies_per_plate: Some(0),
+            ..Default::default()
+        };
         let item = update_item(&fx.conn, item.id, &patch).unwrap();
         assert_eq!(item.qty_done, 2);
         assert_eq!(item.copies_per_plate, 1);
@@ -533,7 +615,10 @@ pub(crate) mod tests {
     fn project_summary_remaining() {
         let fx = fixture();
         let a = source(&fx, "a", "a.stl", "x");
-        let item = import_files(&fx.conn, &fx.lib, fx.queue_id, &[a]).unwrap().imported.remove(0);
+        let item = import_files(&fx.conn, &fx.lib, fx.queue_id, &[a])
+            .unwrap()
+            .imported
+            .remove(0);
         let patch = ItemPatch {
             qty_total: Some(4),
             qty_done: Some(1),
@@ -554,7 +639,10 @@ pub(crate) mod tests {
     fn delete_item_removes_row_and_file() {
         let fx = fixture();
         let a = source(&fx, "a", "a.stl", "x");
-        let item = import_files(&fx.conn, &fx.lib, fx.queue_id, &[a]).unwrap().imported.remove(0);
+        let item = import_files(&fx.conn, &fx.lib, fx.queue_id, &[a])
+            .unwrap()
+            .imported
+            .remove(0);
         let path = fx.lib.join(&item.files[0].rel_path);
         delete_item(&fx.conn, &fx.lib, item.id).unwrap();
         assert!(!path.exists());
@@ -564,10 +652,28 @@ pub(crate) mod tests {
     #[test]
     fn reorder_places_item_at_index() {
         let fx = fixture();
-        let paths: Vec<_> = ["a.stl", "b.stl", "c.stl"].iter().map(|n| source(&fx, "s", n, "x")).collect();
-        let items = import_files(&fx.conn, &fx.lib, fx.queue_id, &paths).unwrap().imported;
+        let paths: Vec<_> = ["a.stl", "b.stl", "c.stl"]
+            .iter()
+            .map(|n| source(&fx, "s", n, "x"))
+            .collect();
+        let items = import_files(&fx.conn, &fx.lib, fx.queue_id, &paths)
+            .unwrap()
+            .imported;
         reorder(&fx.conn, items[2].id, "todo", 0).unwrap();
-        let names: Vec<_> = list_items(&fx.conn, fx.queue_id).unwrap().into_iter().map(|i| i.name).collect();
+        let names: Vec<_> = list_items(&fx.conn, fx.queue_id)
+            .unwrap()
+            .into_iter()
+            .map(|i| i.name)
+            .collect();
         assert_eq!(names, ["c", "a", "b"]);
+    }
+
+    #[test]
+    fn settings_roundtrip() {
+        let fx = fixture();
+        assert_eq!(get_setting(&fx.conn, "theme").unwrap(), None);
+        set_setting(&fx.conn, "theme", "light").unwrap();
+        set_setting(&fx.conn, "theme", "dark").unwrap();
+        assert_eq!(get_setting(&fx.conn, "theme").unwrap().as_deref(), Some("dark"));
     }
 }

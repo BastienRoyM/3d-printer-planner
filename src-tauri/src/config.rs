@@ -30,7 +30,9 @@ pub fn load(config_file: &Path) -> AppConfig {
     std::fs::read_to_string(config_file)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_else(|| AppConfig { library_path: default_library_path() })
+        .unwrap_or_else(|| AppConfig {
+            library_path: default_library_path(),
+        })
 }
 
 pub fn save(config_file: &Path, cfg: &AppConfig) -> AppResult<()> {
@@ -57,7 +59,9 @@ mod tests {
     fn save_then_load_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("sub/config.json");
-        let cfg = AppConfig { library_path: dir.path().join("lib") };
+        let cfg = AppConfig {
+            library_path: dir.path().join("lib"),
+        };
         save(&file, &cfg).unwrap();
         assert_eq!(load(&file).library_path, dir.path().join("lib"));
     }
