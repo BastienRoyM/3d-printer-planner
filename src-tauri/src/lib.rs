@@ -4,6 +4,7 @@ mod error;
 mod library;
 mod models;
 mod repo;
+mod status;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
