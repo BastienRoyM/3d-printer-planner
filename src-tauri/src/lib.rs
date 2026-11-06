@@ -45,7 +45,7 @@ pub fn run() {
             commands::delete_project,
             commands::list_queues,
             commands::create_queue,
-            commands::rename_queue,
+            commands::update_queue,
             commands::delete_queue,
             commands::list_items,
             commands::import_files,

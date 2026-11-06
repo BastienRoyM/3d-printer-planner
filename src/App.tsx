@@ -47,8 +47,10 @@ function Shell() {
     <div className="app">
       <Sidebar
         projects={projects}
-        selectedId={view?.projectId ?? null}
-        onSelect={(id) => setView({ projectId: id, queueId: null })}
+        projectId={view?.projectId ?? null}
+        queueId={view?.queueId ?? null}
+        onSelectProject={(id) => setView({ projectId: id, queueId: null })}
+        onSelectQueue={(projectId, queueId) => setView({ projectId, queueId })}
         onNew={() => setDialog("new-project")}
         onSettings={() => setDialog("settings")}
       />
@@ -59,6 +61,7 @@ function Shell() {
               projectId={selected.project.id}
               queueId={view.queueId}
               projectName={selected.project.name}
+              onChanged={refreshProjects}
               onBack={() => setView({ projectId: selected.project.id, queueId: null })}
             />
           ) : (
@@ -98,18 +101,25 @@ function Shell() {
   );
 }
 
-function QueueRoute({ projectId, queueId, projectName, onBack }: {
+function QueueRoute({ projectId, queueId, projectName, onChanged, onBack }: {
   projectId: number;
   queueId: number;
   projectName: string;
+  onChanged: () => void;
   onBack: () => void;
 }) {
-  const [queues] = useLibrary(() => listQueues(projectId), [projectId]);
+  const [queues, refreshQueues] = useLibrary(() => listQueues(projectId), [projectId]);
   const queue = queues?.find((q) => q.queue.id === queueId)?.queue;
   useEffect(() => {
     if (queues && !queue) onBack();
   }, [queues, queue, onBack]);
-  return queue ? <QueueBoard key={queue.id} queue={queue} projectName={projectName} onBack={onBack} /> : null;
+  const changed = () => {
+    refreshQueues();
+    onChanged();
+  };
+  return queue ? (
+    <QueueBoard key={queue.id} queue={queue} projectName={projectName} onChanged={changed} onBack={onBack} />
+  ) : null;
 }
 
 export default function App() {

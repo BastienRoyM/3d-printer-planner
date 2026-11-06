@@ -9,6 +9,7 @@ export interface Project {
   name: string;
   description: string;
   color: string | null;
+  icon: string | null;
   folderRel: string;
   archived: boolean;
   createdAt: string;
@@ -21,21 +22,25 @@ export interface ProjectSummary {
   itemsTotal: number;
   itemsDone: number;
   remainingMinutes: number;
-  remainingGrams: number;
+  queues: QueueStats[];
 }
 
 export interface Queue {
   id: number;
   projectId: number;
   name: string;
+  icon: string | null;
   folderRel: string;
 }
 
-export interface QueueSummary {
+export interface QueueStats {
   queue: Queue;
   totalPrints: number;
   donePrints: number;
   printingCount: number;
+}
+
+export interface QueueSummary extends QueueStats {
   nextItem: Item | null;
 }
 
@@ -56,11 +61,8 @@ export interface Item {
   qtyTotal: number;
   qtyDone: number;
   copiesPerPlate: number;
-  material: string | null;
-  color: string | null;
   notes: string;
   estMinutes: number | null;
-  estGrams: number | null;
   printerId: number | null;
   thumbnail: string | null;
   sort: number;
@@ -81,7 +83,7 @@ export interface PrintEvent {
 export type ItemPatch = Partial<
   Pick<
     Item,
-    "name" | "qtyTotal" | "qtyDone" | "copiesPerPlate" | "material" | "color" | "notes" | "estMinutes" | "estGrams"
+    "name" | "qtyTotal" | "qtyDone" | "copiesPerPlate" | "notes" | "estMinutes"
   >
 >;
 
@@ -117,13 +119,14 @@ export const createProject = (name: string, description?: string, color?: string
   invoke<Project>("create_project", { name, description, color });
 export const updateProject = (
   id: number,
-  patch: { name?: string; description?: string; color?: string; archived?: boolean },
+  patch: { name?: string; description?: string; color?: string; icon?: string; archived?: boolean },
 ) => invoke<Project>("update_project", { id, ...patch });
 export const deleteProject = (id: number) => invoke<void>("delete_project", { id });
 
 export const listQueues = (projectId: number) => invoke<QueueSummary[]>("list_queues", { projectId });
 export const createQueue = (projectId: number, name: string) => invoke<Queue>("create_queue", { projectId, name });
-export const renameQueue = (id: number, name: string) => invoke<Queue>("rename_queue", { id, name });
+export const updateQueue = (id: number, patch: { name?: string; icon?: string }) =>
+  invoke<Queue>("update_queue", { id, ...patch });
 export const deleteQueue = (id: number) => invoke<void>("delete_queue", { id });
 
 export const listItems = (queueId: number) => invoke<Item[]>("list_items", { queueId });

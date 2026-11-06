@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Archive, ArchiveRestore, ExternalLink, Pencil, Plus, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Boxes, ExternalLink, Layers, Pencil, Plus, Smile, Trash2 } from "lucide-react";
 import {
   createQueue,
   deleteProject,
@@ -7,14 +7,15 @@ import {
   errorText,
   listQueues,
   openInSlicer,
-  renameQueue,
   updateProject,
+  updateQueue,
   type ProjectSummary,
   type QueueSummary,
 } from "../api";
 import { useLibrary } from "../hooks/useLibrary";
-import { formatGrams, formatMinutes } from "../lib/format";
+import { formatMinutes } from "../lib/format";
 import { percent } from "../lib/progress";
+import { EntityIcon, IconPicker } from "./Icons";
 import { Menu } from "./Menu";
 import { ConfirmModal, PromptModal } from "./Modal";
 import { LayerBar } from "./ProgressBar";
@@ -27,6 +28,8 @@ type Dialog =
   | { kind: "new-queue" }
   | { kind: "rename-queue"; queue: QueueSummary }
   | { kind: "delete-queue"; queue: QueueSummary }
+  | { kind: "queue-icon"; queue: QueueSummary }
+  | { kind: "project-icon" }
   | { kind: "rename-project" }
   | { kind: "delete-project" }
   | null;
@@ -61,7 +64,17 @@ export function ProjectView({ summary, onOpenQueue, onChanged }: {
     <div className="page">
       <div className="page-head">
         <div style={{ flex: 1, minWidth: 0 }}>
-          <h1>{project.name}</h1>
+          <h1 className="title-with-icon">
+            <button
+              className="icon-pick"
+              onClick={() => setDialog({ kind: "project-icon" })}
+              title="Change icon"
+              aria-label="Change project icon"
+            >
+              <EntityIcon name={project.icon} fallback={Boxes} size={24} color={project.color ?? "var(--accent)"} />
+            </button>
+            {project.name}
+          </h1>
           <input
             className="desc-input"
             value={description}
@@ -92,6 +105,7 @@ export function ProjectView({ summary, onOpenQueue, onChanged }: {
             label="Project actions"
             entries={[
               { label: "Rename", icon: <Pencil size={14} />, onClick: () => setDialog({ kind: "rename-project" }) },
+              { label: "Change icon", icon: <Smile size={14} />, onClick: () => setDialog({ kind: "project-icon" }) },
               project.archived
                 ? { label: "Restore", icon: <ArchiveRestore size={14} />, onClick: () => act(() => updateProject(project.id, { archived: false })) }
                 : { label: "Archive", icon: <Archive size={14} />, onClick: () => act(() => updateProject(project.id, { archived: true })) },
@@ -113,10 +127,6 @@ export function ProjectView({ summary, onOpenQueue, onChanged }: {
           <div className="label">Print time left</div>
           <div className="value">{summary.remainingMinutes ? formatMinutes(summary.remainingMinutes) : "—"}</div>
         </div>
-        <div>
-          <div className="label">Filament left</div>
-          <div className="value">{summary.remainingGrams ? formatGrams(summary.remainingGrams) : "—"}</div>
-        </div>
       </div>
 
       <div className="section-head">
@@ -133,11 +143,15 @@ export function ProjectView({ summary, onOpenQueue, onChanged }: {
             onKeyDown={(e) => e.key === "Enter" && onOpenQueue(q.queue.id)}
           >
             <div className="queue-card-head">
-              <h3>{q.queue.name}</h3>
+              <h3 className="title-with-icon">
+                <EntityIcon name={q.queue.icon} fallback={Layers} size={16} />
+                <span>{q.queue.name}</span>
+              </h3>
               <Menu
                 label={`Actions for ${q.queue.name}`}
                 entries={[
                   { label: "Rename", icon: <Pencil size={14} />, onClick: () => setDialog({ kind: "rename-queue", queue: q }) },
+                  { label: "Change icon", icon: <Smile size={14} />, onClick: () => setDialog({ kind: "queue-icon", queue: q }) },
                   { label: "Delete queue", icon: <Trash2 size={14} />, danger: true, onClick: () => setDialog({ kind: "delete-queue", queue: q }) },
                 ]}
               />
@@ -191,7 +205,24 @@ export function ProjectView({ summary, onOpenQueue, onChanged }: {
           label="Queue name"
           initial={dialog.queue.queue.name}
           confirm="Rename"
-          onSubmit={(name) => act(() => renameQueue(dialog.queue.queue.id, name))}
+          onSubmit={(name) => act(() => updateQueue(dialog.queue.queue.id, { name }))}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.kind === "queue-icon" && (
+        <IconPicker
+          title={`Icon for ${dialog.queue.queue.name}`}
+          current={dialog.queue.queue.icon}
+          onPick={(icon) => act(() => updateQueue(dialog.queue.queue.id, { icon }))}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.kind === "project-icon" && (
+        <IconPicker
+          title={`Icon for ${project.name}`}
+          current={project.icon}
+          color={project.color ?? "var(--accent)"}
+          onPick={(icon) => act(() => updateProject(project.id, { icon }))}
           onClose={() => setDialog(null)}
         />
       )}

@@ -14,7 +14,7 @@ import {
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
-import { ChevronLeft, ExternalLink, FilePlus2, FileQuestion, Upload } from "lucide-react";
+import { ChevronLeft, ExternalLink, FilePlus2, FileQuestion, Layers, Upload } from "lucide-react";
 import {
   STATUSES,
   SUPPORTED_EXTENSIONS,
@@ -25,6 +25,7 @@ import {
   listItems,
   listUnassigned,
   openInSlicer,
+  updateQueue,
   type Action,
   type Item,
   type Queue,
@@ -32,6 +33,7 @@ import {
 } from "../api";
 import { useLibrary } from "../hooks/useLibrary";
 import { ItemCardView, SortableItemCard } from "./ItemCard";
+import { EntityIcon, IconPicker } from "./Icons";
 import { ItemPanel } from "./ItemPanel";
 import { useToast } from "./Toast";
 
@@ -71,7 +73,12 @@ function Column({ status, items, children }: { status: Status; items: Item[]; ch
   );
 }
 
-export function QueueBoard({ queue, projectName, onBack }: { queue: Queue; projectName: string; onBack: () => void }) {
+export function QueueBoard({ queue, projectName, onChanged, onBack }: {
+  queue: Queue;
+  projectName: string;
+  onChanged: () => void;
+  onBack: () => void;
+}) {
   const toast = useToast();
   const [items, refresh] = useLibrary(() => listItems(queue.id), [queue.id]);
   const [unassigned, refreshUnassigned] = useLibrary(() => listUnassigned(queue.id), [queue.id]);
@@ -79,6 +86,7 @@ export function QueueBoard({ queue, projectName, onBack }: { queue: Queue; proje
   const [activeId, setActiveId] = useState<number | null>(null);
   const [openItemId, setOpenItemId] = useState<number | null>(null);
   const [dropping, setDropping] = useState(false);
+  const [pickingIcon, setPickingIcon] = useState(false);
 
   useEffect(() => setColumns(group(items ?? [])), [items]);
 
@@ -197,7 +205,12 @@ export function QueueBoard({ queue, projectName, onBack }: { queue: Queue; proje
           <button className="crumb" onClick={onBack}>
             <ChevronLeft size={14} /> {projectName}
           </button>
-          <h1>{queue.name}</h1>
+          <h1 className="title-with-icon">
+            <button className="icon-pick" onClick={() => setPickingIcon(true)} title="Change icon" aria-label="Change queue icon">
+              <EntityIcon name={queue.icon} fallback={Layers} size={22} />
+            </button>
+            {queue.name}
+          </h1>
         </div>
         <div className="board-toolbar">
           {next && (
@@ -260,6 +273,23 @@ export function QueueBoard({ queue, projectName, onBack }: { queue: Queue; proje
         <div className="drop-overlay">
           <div><Upload size={22} /> Drop to add to {queue.name}</div>
         </div>
+      )}
+
+      {pickingIcon && (
+        <IconPicker
+          title={`Icon for ${queue.name}`}
+          current={queue.icon}
+          onPick={async (icon) => {
+            setPickingIcon(false);
+            try {
+              await updateQueue(queue.id, { icon });
+              onChanged();
+            } catch (e) {
+              toast(errorText(e), "error");
+            }
+          }}
+          onClose={() => setPickingIcon(false)}
+        />
       )}
 
       {openItem && (

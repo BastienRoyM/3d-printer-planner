@@ -72,6 +72,15 @@ CREATE INDEX idx_events_item ON print_events(item_id);
 INSERT INTO printers (id, name) VALUES (1, 'My printer');
 ";
 
+// Icons for projects and queues. Cached 3MF thumbnails are cleared so they are re-read from
+// the picture the slicer embedded in the file. The unused filament columns stay in place.
+const SCHEMA_V2: &str = "
+ALTER TABLE projects ADD COLUMN icon TEXT;
+ALTER TABLE queues ADD COLUMN icon TEXT;
+UPDATE items SET thumbnail = NULL
+WHERE id IN (SELECT item_id FROM item_files WHERE is_original = 1 AND lower(rel_path) LIKE '%.3mf');
+";
+
 /// Opens (creating if needed) the library database and brings its schema up to date.
 pub fn open(path: &Path) -> AppResult<Connection> {
     if let Some(parent) = path.parent() {
@@ -88,6 +97,9 @@ pub fn migrate(conn: &Connection) -> AppResult<()> {
     if version < 1 {
         conn.execute_batch(&format!("BEGIN; {SCHEMA_V1} PRAGMA user_version = 1; COMMIT;"))?;
     }
+    if version < 2 {
+        conn.execute_batch(&format!("BEGIN; {SCHEMA_V2} PRAGMA user_version = 2; COMMIT;"))?;
+    }
     Ok(())
 }
 
@@ -102,7 +114,7 @@ mod tests {
         drop(open(&path).unwrap());
         let conn = open(&path).unwrap();
         let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(v, 1);
+        assert_eq!(v, 2);
     }
 
     #[test]

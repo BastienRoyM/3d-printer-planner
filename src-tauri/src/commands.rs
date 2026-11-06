@@ -174,9 +174,10 @@ pub fn update_project(
     name: Option<String>,
     description: Option<String>,
     color: Option<String>,
+    icon: Option<String>,
     archived: Option<bool>,
 ) -> AppResult<Project> {
-    state.with(|conn, _| repo::update_project(conn, id, name, description, color, archived))
+    state.with(|conn, _| repo::update_project(conn, id, name, description, color, icon, archived))
 }
 
 #[tauri::command]
@@ -195,8 +196,13 @@ pub fn create_queue(state: State<AppState>, project_id: i64, name: String) -> Ap
 }
 
 #[tauri::command]
-pub fn rename_queue(state: State<AppState>, id: i64, name: String) -> AppResult<Queue> {
-    state.with(|conn, _| repo::rename_queue(conn, id, &name))
+pub fn update_queue(
+    state: State<AppState>,
+    id: i64,
+    name: Option<String>,
+    icon: Option<String>,
+) -> AppResult<Queue> {
+    state.with(|conn, _| repo::update_queue(conn, id, name, icon))
 }
 
 #[tauri::command]

@@ -2,11 +2,11 @@
 
 A small Windows desktop app for planning long 3D-printing projects.
 
-- **Projects → queues → items.** A project (say, a helmet) holds named queues (one per filament or plate), and each queue holds your model files.
-- **Drop files in.** Drag STL, 3MF, OBJ, STEP, AMF or G-code files onto a queue, or use **Add files**. They are copied into your library, so moving or deleting the originals is safe.
+- **Projects → queues → items.** A project (say, a helmet) holds named queues (one per plate or part group), and each queue holds your model files. The sidebar lists every project with its queues nested under it, and each project and queue can have its own icon.
+- **Drop files in.** Drag STL, 3MF, OBJ, STEP, AMF or G-code files onto a queue, or use **Add files**. They are copied into your library, so moving or deleting the originals is safe. 3MF files show the preview picture the slicer saved inside them (like Windows Explorer does); other models get a rendered thumbnail. **View 3D** in an item's details opens the model in an orbitable viewer.
 - **Open in your slicer.** The top card in *To do* is your next print. **Slicer** opens it in ElegooSlicer (detected automatically) or any slicer you choose in Settings. When the slicer saves `part.3mf` or `part_plate_1.gcode` next to the model, the app attaches it to the item, and the next **Open in slicer** opens your saved project.
 - **Track progress.** A board with *To do / Printing / Done / Failed*. Each item has a quantity and copies per plate: **Finished** adds a plate's worth of copies, and the card returns to *To do* until the quantity is reached. Every start, finish and failure is kept in the item's history.
-- **See where you're at.** Each project shows how much is printed, plus the print time and filament left (from your per-plate estimates).
+- **See where you're at.** Each project shows how much is printed, plus the print time left (from your per-plate estimates).
 
 ## Install
 

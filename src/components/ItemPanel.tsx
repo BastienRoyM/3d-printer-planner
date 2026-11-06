@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ExternalLink, FolderOpen, Paperclip, RotateCcw, Trash2, X } from "lucide-react";
+import { Box, ExternalLink, FolderOpen, Paperclip, RotateCcw, Trash2, X } from "lucide-react";
 import {
   attachFile,
   deleteItem,
@@ -14,14 +14,15 @@ import {
   type ItemPatch,
   type PrintEvent,
 } from "../api";
-import { formatGrams, formatMinutes } from "../lib/format";
+import { formatMinutes } from "../lib/format";
+import { modelExt } from "../lib/thumbnail";
 import { platesRemaining } from "../lib/progress";
 import { ConfirmModal } from "./Modal";
+import { ModelViewer } from "./ModelViewer";
 import { LayerBar } from "./ProgressBar";
 import { Thumbnail } from "./Thumbnail";
 import { useToast } from "./Toast";
 
-const MATERIALS = ["PLA", "PLA+", "PETG", "ABS", "ASA", "TPU", "PA", "PC", "Resin"];
 const EVENT_TEXT: Record<PrintEvent["kind"], (c: number) => string> = {
   started: (c) => `Started printing (${c} per plate)`,
   finished: (c) => `Finished ${c} cop${c === 1 ? "y" : "ies"}`,
@@ -76,20 +77,19 @@ export function ItemPanel({ item, unassigned, onChanged, onClose }: {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [name, setName] = useState(item.name);
   const [notes, setNotes] = useState(item.notes);
-  const [material, setMaterial] = useState(item.material ?? "");
+  const [viewing, setViewing] = useState(false);
 
   useEffect(() => {
     setName(item.name);
     setNotes(item.notes);
-    setMaterial(item.material ?? "");
     itemHistory(item.id).then(setHistory).catch(console.error);
   }, [item]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !confirmDelete && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !confirmDelete && !viewing && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, confirmDelete]);
+  }, [onClose, confirmDelete, viewing]);
 
   const save = async (patch: ItemPatch) => {
     try {
@@ -117,6 +117,8 @@ export function ItemPanel({ item, unassigned, onChanged, onClose }: {
 
   const target = openTargetId(item);
   const plates = platesRemaining(item);
+  const original = item.files.find((f) => f.isOriginal) ?? item.files[0];
+  const viewExt = original ? modelExt(fileName(original.relPath)) : null;
 
   return (
     <>
@@ -135,7 +137,13 @@ export function ItemPanel({ item, unassigned, onChanged, onClose }: {
           </button>
         </div>
 
-        <Thumbnail item={item} size="lg" />
+        {viewExt ? (
+          <button className="thumb-button" onClick={() => setViewing(true)} title="View the 3D model">
+            <Thumbnail item={item} size="lg" />
+          </button>
+        ) : (
+          <Thumbnail item={item} size="lg" />
+        )}
 
         <div className="panel-actions">
           <button className="btn primary" onClick={guard(() => openInSlicer(item.id))}>
@@ -144,6 +152,11 @@ export function ItemPanel({ item, unassigned, onChanged, onClose }: {
           <button className="btn" onClick={guard(() => revealItem(item.id))}>
             <FolderOpen size={15} /> Show in folder
           </button>
+          {viewExt && (
+            <button className="btn" onClick={() => setViewing(true)}>
+              <Box size={15} /> View 3D
+            </button>
+          )}
         </div>
 
         <section>
@@ -165,7 +178,16 @@ export function ItemPanel({ item, unassigned, onChanged, onClose }: {
               <span>Plates left</span>
               <div className="num" style={{ paddingTop: 7 }}>{plates}</div>
             </div>
+            <NumberField
+              label="Time per plate"
+              suffix={item.estMinutes != null ? `(${formatMinutes(item.estMinutes)})` : "(minutes)"}
+              value={item.estMinutes}
+              onSave={(v) => save({ estMinutes: v })}
+            />
           </div>
+          {item.estMinutes != null && plates > 0 && (
+            <p className="hint">Left to print: {formatMinutes(item.estMinutes * plates)}</p>
+          )}
           {item.qtyDone > 0 && (
             <button
               className="btn ghost sm"
@@ -174,49 +196,6 @@ export function ItemPanel({ item, unassigned, onChanged, onClose }: {
             >
               <RotateCcw size={13} /> Reset progress
             </button>
-          )}
-        </section>
-
-        <section>
-          <h3>Filament</h3>
-          <div className="grid2">
-            <label className="field">
-              <span>Material</span>
-              <input
-                list="materials"
-                value={material}
-                onChange={(e) => setMaterial(e.target.value)}
-                onBlur={() => material !== (item.material ?? "") && save({ material: material.trim() || null })}
-              />
-              <datalist id="materials">{MATERIALS.map((m) => <option key={m} value={m} />)}</datalist>
-            </label>
-            <label className="field">
-              <span>Colour</span>
-              <div className="row" style={{ flexWrap: "nowrap" }}>
-                <input
-                  type="color"
-                  value={item.color ?? "#8b9cff"}
-                  onChange={(e) => save({ color: e.target.value })}
-                  style={{ width: 44, padding: 2 }}
-                />
-                {item.color && (
-                  <button className="btn ghost sm" onClick={() => save({ color: null })}>Clear</button>
-                )}
-              </div>
-            </label>
-            <NumberField
-              label="Time per plate"
-              suffix={item.estMinutes != null ? `(${formatMinutes(item.estMinutes)})` : "(minutes)"}
-              value={item.estMinutes}
-              onSave={(v) => save({ estMinutes: v })}
-            />
-            <NumberField label="Grams per plate" value={item.estGrams} onSave={(v) => save({ estGrams: v })} />
-          </div>
-          {(item.estMinutes != null || item.estGrams != null) && plates > 0 && (
-            <p className="hint">
-              Left to print: {formatMinutes(item.estMinutes != null ? item.estMinutes * plates : null)} and{" "}
-              {formatGrams(item.estGrams != null ? item.estGrams * plates : null)}
-            </p>
           )}
         </section>
 
@@ -285,6 +264,9 @@ export function ItemPanel({ item, unassigned, onChanged, onClose }: {
         </section>
       </aside>
 
+      {viewing && viewExt && (
+        <ModelViewer itemId={item.id} ext={viewExt} name={item.name} onClose={() => setViewing(false)} />
+      )}
       {confirmDelete && (
         <ConfirmModal
           title={`Delete ${item.name}?`}

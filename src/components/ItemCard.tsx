@@ -24,48 +24,41 @@ export function ItemCardView({ item, isNext, overlay, onAction, onOpen, onSlicer
       <Thumbnail item={item} />
       <div className="card-body">
         <div className="card-name" title={item.name}>{item.name}</div>
-        {(item.material || item.color) && (
-          <div className="card-meta">
-            <span className="chip">
-              {item.color && <span className="chip-swatch" style={{ background: item.color }} />}
-              {item.material ?? ""}
-            </span>
-          </div>
-        )}
         <div className="card-qty">
           <span>{item.qtyDone}/{item.qtyTotal}</span>
           <LayerBar done={item.qtyDone} total={item.qtyTotal} size="sm" />
         </div>
-        {onAction && (
-          <div className="card-actions" onPointerDown={(e) => e.stopPropagation()}>
-            {item.status === "todo" && (
-              <>
-                <button className="btn sm" onClick={stop(onSlicer)} title="Open in slicer">
-                  <ExternalLink size={13} /> Slicer
-                </button>
-                <button className="btn sm" onClick={stop(() => onAction({ type: "start" }))} title="Mark as printing">
-                  <Play size={13} /> Start
-                </button>
-              </>
-            )}
-            {item.status === "printing" && (
-              <>
-                <button className="btn sm" onClick={stop(() => onAction({ type: "finish" }))}>
-                  <Check size={13} /> Finished
-                </button>
-                <button className="btn sm ghost" onClick={stop(() => onAction({ type: "fail" }))}>
-                  <X size={13} /> Failed
-                </button>
-              </>
-            )}
-            {item.status === "failed" && (
-              <button className="btn sm" onClick={stop(() => onAction({ type: "moveTo", status: "todo" }))}>
-                <RotateCcw size={13} /> Retry
-              </button>
-            )}
-          </div>
-        )}
       </div>
+      {/* Spans the whole card under the thumbnail so the buttons fit narrow columns. */}
+      {onAction && (
+        <div className="card-actions" onPointerDown={(e) => e.stopPropagation()}>
+          {item.status === "todo" && (
+            <>
+              <button className="btn sm" onClick={stop(onSlicer)} title="Open in slicer">
+                <ExternalLink size={13} /> Slicer
+              </button>
+              <button className="btn sm" onClick={stop(() => onAction({ type: "start" }))} title="Mark as printing">
+                <Play size={13} /> Start
+              </button>
+            </>
+          )}
+          {item.status === "printing" && (
+            <>
+              <button className="btn sm" onClick={stop(() => onAction({ type: "finish" }))}>
+                <Check size={13} /> Finished
+              </button>
+              <button className="btn sm ghost" onClick={stop(() => onAction({ type: "fail" }))}>
+                <X size={13} /> Failed
+              </button>
+            </>
+          )}
+          {item.status === "failed" && (
+            <button className="btn sm" onClick={stop(() => onAction({ type: "moveTo", status: "todo" }))}>
+              <RotateCcw size={13} /> Retry
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

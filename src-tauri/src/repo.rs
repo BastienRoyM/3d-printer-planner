@@ -5,12 +5,12 @@ use serde::Serialize;
 
 use crate::error::{AppError, AppResult};
 use crate::library;
-use crate::models::{Item, ItemFile, ItemPatch, Project, ProjectSummary, Queue, QueueSummary};
+use crate::models::{Item, ItemFile, ItemPatch, Project, ProjectSummary, Queue, QueueStats, QueueSummary};
 
-const PROJECT_COLS: &str = "id, name, description, color, folder_rel, archived, created_at";
-const QUEUE_COLS: &str = "id, project_id, name, folder_rel";
-const ITEM_COLS: &str = "id, queue_id, name, status, qty_total, qty_done, copies_per_plate, material, \
-    color, notes, est_minutes, est_grams, printer_id, thumbnail, sort, created_at, updated_at";
+const PROJECT_COLS: &str = "id, name, description, color, icon, folder_rel, archived, created_at";
+const QUEUE_COLS: &str = "id, project_id, name, icon, folder_rel";
+const ITEM_COLS: &str = "id, queue_id, name, status, qty_total, qty_done, copies_per_plate, notes, \
+    est_minutes, printer_id, thumbnail, sort, created_at, updated_at";
 const FILE_COLS: &str = "id, item_id, rel_path, kind, is_original, added_at";
 const STATUS_ORDER: &str =
     "CASE status WHEN 'todo' THEN 0 WHEN 'printing' THEN 1 WHEN 'done' THEN 2 ELSE 3 END";
@@ -28,9 +28,10 @@ fn project_from_row(r: &Row) -> rusqlite::Result<Project> {
         name: r.get(1)?,
         description: r.get(2)?,
         color: r.get(3)?,
-        folder_rel: r.get(4)?,
-        archived: r.get(5)?,
-        created_at: r.get(6)?,
+        icon: r.get(4)?,
+        folder_rel: r.get(5)?,
+        archived: r.get(6)?,
+        created_at: r.get(7)?,
     })
 }
 
@@ -39,7 +40,8 @@ fn queue_from_row(r: &Row) -> rusqlite::Result<Queue> {
         id: r.get(0)?,
         project_id: r.get(1)?,
         name: r.get(2)?,
-        folder_rel: r.get(3)?,
+        icon: r.get(3)?,
+        folder_rel: r.get(4)?,
     })
 }
 
@@ -63,16 +65,13 @@ fn item_from_row(r: &Row) -> rusqlite::Result<Item> {
         qty_total: r.get(4)?,
         qty_done: r.get(5)?,
         copies_per_plate: r.get(6)?,
-        material: r.get(7)?,
-        color: r.get(8)?,
-        notes: r.get(9)?,
-        est_minutes: r.get(10)?,
-        est_grams: r.get(11)?,
-        printer_id: r.get(12)?,
-        thumbnail: r.get(13)?,
-        sort: r.get(14)?,
-        created_at: r.get(15)?,
-        updated_at: r.get(16)?,
+        notes: r.get(7)?,
+        est_minutes: r.get(8)?,
+        printer_id: r.get(9)?,
+        thumbnail: r.get(10)?,
+        sort: r.get(11)?,
+        created_at: r.get(12)?,
+        updated_at: r.get(13)?,
         files: Vec::new(),
     })
 }
@@ -132,6 +131,7 @@ pub fn update_project(
     name: Option<String>,
     description: Option<String>,
     color: Option<String>,
+    icon: Option<String>,
     archived: Option<bool>,
 ) -> AppResult<Project> {
     let current = get_project(conn, id)?;
@@ -140,12 +140,13 @@ pub fn update_project(
         .filter(|n| !n.is_empty())
         .unwrap_or(current.name);
     conn.execute(
-        "UPDATE projects SET name = ?2, description = ?3, color = ?4, archived = ?5 WHERE id = ?1",
+        "UPDATE projects SET name = ?2, description = ?3, color = ?4, icon = ?5, archived = ?6 WHERE id = ?1",
         params![
             id,
             name,
             description.unwrap_or(current.description),
             color.or(current.color),
+            icon.or(current.icon),
             archived.unwrap_or(current.archived)
         ],
     )?;
@@ -165,11 +166,15 @@ pub fn list_projects(conn: &Connection) -> AppResult<Vec<ProjectSummary>> {
     ))?;
     let projects: Vec<Project> = stmt.query_map([], project_from_row)?.collect::<Result<_, _>>()?;
     let mut items = conn.prepare(
-        "SELECT i.qty_total, i.qty_done, i.copies_per_plate, i.est_minutes, i.est_grams, i.status
+        "SELECT i.qty_total, i.qty_done, i.copies_per_plate, i.est_minutes, i.status
          FROM items i JOIN queues q ON q.id = i.queue_id WHERE q.project_id = ?1",
     )?;
     let mut out = Vec::with_capacity(projects.len());
     for project in projects {
+        let queues = project_queues(conn, project.id)?
+            .into_iter()
+            .map(|q| queue_stats(conn, q))
+            .collect::<AppResult<_>>()?;
         let mut s = ProjectSummary {
             project,
             total_prints: 0,
@@ -177,7 +182,7 @@ pub fn list_projects(conn: &Connection) -> AppResult<Vec<ProjectSummary>> {
             items_total: 0,
             items_done: 0,
             remaining_minutes: 0,
-            remaining_grams: 0,
+            queues,
         };
         let rows = items.query_map([s.project.id], |r| {
             Ok((
@@ -185,19 +190,17 @@ pub fn list_projects(conn: &Connection) -> AppResult<Vec<ProjectSummary>> {
                 r.get::<_, i64>(1)?,
                 r.get::<_, i64>(2)?,
                 r.get::<_, Option<i64>>(3)?,
-                r.get::<_, Option<i64>>(4)?,
-                r.get::<_, String>(5)?,
+                r.get::<_, String>(4)?,
             ))
         })?;
         for row in rows {
-            let (total, done, cpp, minutes, grams, status) = row?;
+            let (total, done, cpp, minutes, status) = row?;
             let plates = plates_remaining(total, done, cpp);
             s.total_prints += total;
             s.done_prints += done;
             s.items_total += 1;
             s.items_done += (status == "done") as i64;
             s.remaining_minutes += minutes.unwrap_or(0) * plates;
-            s.remaining_grams += grams.unwrap_or(0) * plates;
         }
         out.push(s);
     }
@@ -239,12 +242,17 @@ pub fn create_queue(conn: &Connection, lib: &Path, project_id: i64, name: &str) 
     get_queue(conn, conn.last_insert_rowid())
 }
 
-pub fn rename_queue(conn: &Connection, id: i64, name: &str) -> AppResult<Queue> {
-    let name = name.trim();
-    if name.is_empty() {
-        return Err(AppError::Invalid("Queue name cannot be empty".into()));
-    }
-    conn.execute("UPDATE queues SET name = ?2 WHERE id = ?1", params![id, name])?;
+pub fn update_queue(conn: &Connection, id: i64, name: Option<String>, icon: Option<String>) -> AppResult<Queue> {
+    let current = get_queue(conn, id)?;
+    let name = match name.map(|n| n.trim().to_string()) {
+        Some(n) if n.is_empty() => return Err(AppError::Invalid("Queue name cannot be empty".into())),
+        Some(n) => n,
+        None => current.name,
+    };
+    conn.execute(
+        "UPDATE queues SET name = ?2, icon = ?3 WHERE id = ?1",
+        params![id, name, icon.or(current.icon)],
+    )?;
     get_queue(conn, id)
 }
 
@@ -255,22 +263,42 @@ pub fn delete_queue(conn: &Connection, lib: &Path, id: i64) -> AppResult<()> {
     Ok(())
 }
 
-pub fn list_queues(conn: &Connection, project_id: i64) -> AppResult<Vec<QueueSummary>> {
+fn project_queues(conn: &Connection, project_id: i64) -> AppResult<Vec<Queue>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT {QUEUE_COLS} FROM queues WHERE project_id = ?1 ORDER BY sort, id"
     ))?;
-    let queues: Vec<Queue> = stmt
+    let queues = stmt
         .query_map([project_id], queue_from_row)?
         .collect::<Result<_, _>>()?;
+    Ok(queues)
+}
+
+fn queue_stats(conn: &Connection, queue: Queue) -> AppResult<QueueStats> {
+    let (total_prints, done_prints, printing_count) = conn.query_row(
+        "SELECT COALESCE(SUM(qty_total), 0), COALESCE(SUM(qty_done), 0),
+                COALESCE(SUM(status = 'printing'), 0)
+         FROM items WHERE queue_id = ?1",
+        [queue.id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )?;
+    Ok(QueueStats {
+        queue,
+        total_prints,
+        done_prints,
+        printing_count,
+    })
+}
+
+pub fn list_queues(conn: &Connection, project_id: i64) -> AppResult<Vec<QueueSummary>> {
+    let queues = project_queues(conn, project_id)?;
     let mut out = Vec::with_capacity(queues.len());
     for queue in queues {
-        let (total_prints, done_prints, printing_count): (i64, i64, i64) = conn.query_row(
-            "SELECT COALESCE(SUM(qty_total), 0), COALESCE(SUM(qty_done), 0),
-                    COALESCE(SUM(status = 'printing'), 0)
-             FROM items WHERE queue_id = ?1",
-            [queue.id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )?;
+        let QueueStats {
+            queue,
+            total_prints,
+            done_prints,
+            printing_count,
+        } = queue_stats(conn, queue)?;
         let next_id: Option<i64> = conn
             .query_row(
                 "SELECT id FROM items WHERE queue_id = ?1 AND status = 'todo' ORDER BY sort, id LIMIT 1",
@@ -389,8 +417,7 @@ pub fn update_item(conn: &Connection, id: i64, patch: &ItemPatch) -> AppResult<I
     let cpp = patch.copies_per_plate.unwrap_or(cur.copies_per_plate).max(1);
     conn.execute(
         "UPDATE items SET name = ?2, qty_total = ?3, qty_done = ?4, copies_per_plate = ?5,
-            material = ?6, color = ?7, notes = ?8, est_minutes = ?9, est_grams = ?10,
-            updated_at = datetime('now')
+            notes = ?6, est_minutes = ?7, updated_at = datetime('now')
          WHERE id = ?1",
         params![
             id,
@@ -398,11 +425,8 @@ pub fn update_item(conn: &Connection, id: i64, patch: &ItemPatch) -> AppResult<I
             qty_total,
             qty_done,
             cpp,
-            patch.material.clone().unwrap_or(cur.material),
-            patch.color.clone().unwrap_or(cur.color),
             patch.notes.clone().unwrap_or(cur.notes),
             patch.est_minutes.unwrap_or(cur.est_minutes).map(|v| v.max(0)),
-            patch.est_grams.unwrap_or(cur.est_grams).map(|v| v.max(0)),
         ],
     )?;
     get_item(conn, id)
@@ -624,7 +648,6 @@ pub(crate) mod tests {
             qty_done: Some(1),
             copies_per_plate: Some(2),
             est_minutes: Some(Some(60)),
-            est_grams: Some(Some(30)),
             ..Default::default()
         };
         update_item(&fx.conn, item.id, &patch).unwrap();
@@ -632,7 +655,8 @@ pub(crate) mod tests {
         assert_eq!(s.total_prints, 4);
         assert_eq!(s.done_prints, 1);
         assert_eq!(s.remaining_minutes, 120);
-        assert_eq!(s.remaining_grams, 60);
+        assert_eq!(s.queues.len(), 1);
+        assert_eq!(s.queues[0].done_prints, 1);
     }
 
     #[test]
