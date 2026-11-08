@@ -3,10 +3,13 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
-  closestCorners,
+  closestCenter,
+  pointerWithin,
+  rectIntersection,
   useDroppable,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
@@ -57,14 +60,14 @@ function group(items: Item[]): Columns {
 function Column({ status, items, children }: { status: Status; items: Item[]; children: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col-${status}`, data: { status } });
   return (
-    <section className={`column${isOver ? " is-over" : ""}`} aria-label={TITLES[status]}>
+    <section className={`column${isOver ? " is-over" : ""}`} aria-label={TITLES[status]} ref={setNodeRef}>
       <header className="column-head">
         <span className={`status-dot status-${status}`} />
         {TITLES[status]}
         <span className="count">{items.length}</span>
       </header>
       <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
-        <div className="column-body" ref={setNodeRef}>
+        <div className="column-body">
           {children}
           {items.length === 0 && <div className="column-empty">{EMPTY[status]}</div>}
         </div>
@@ -158,6 +161,32 @@ export function QueueBoard({ queue, projectName, onChanged, onBack }: {
     return all.find((i) => i.id === id)?.status ?? null;
   };
 
+  // The lane under the pointer decides where a card goes; a card in the next lane can never win
+  // just because its corners sit closer than the corners of a tall lane.
+  const collision: CollisionDetection = (args) => {
+    const isLane = (id: number | string) => String(id).startsWith("col-");
+    const lanes = args.droppableContainers.filter((c) => isLane(c.id));
+    const lane =
+      pointerWithin({ ...args, droppableContainers: lanes })[0] ??
+      rectIntersection({ ...args, droppableContainers: lanes })[0];
+    if (!lane) return [];
+    const status = columnOf(lane.id);
+    const cards = args.droppableContainers.filter((c) => !isLane(c.id) && columnOf(c.id) === status);
+    // Reordering within the card's own lane: the usual nearest-card behaviour.
+    if (status === columnOf(args.active.id)) {
+      return cards.length ? closestCenter({ ...args, droppableContainers: cards }) : [lane];
+    }
+    // Entering another lane: go before the first card whose middle is below the pointer, else at the end.
+    const y = args.pointerCoordinates?.y;
+    if (y == null) return [lane];
+    const before = cards
+      .map((c) => ({ id: c.id, rect: args.droppableRects.get(c.id) }))
+      .filter((c) => c.rect)
+      .sort((a, b) => a.rect!.top - b.rect!.top)
+      .find((c) => c.rect!.top + c.rect!.height / 2 > y);
+    return before ? [{ id: before.id }] : [lane];
+  };
+
   const onDragStart = (e: DragStartEvent) => setActiveId(Number(e.active.id));
 
   // Live-move the card between columns while dragging so the drop position is visible.
@@ -185,7 +214,8 @@ export function QueueBoard({ queue, projectName, onChanged, onBack }: {
     const current = list.findIndex((i) => i.id === active.id);
     const overIdx = list.findIndex((i) => i.id === over.id);
     // `list` already holds the card where onDragOver put it, so the hovered slot is the target.
-    const index = overIdx >= 0 ? overIdx : Math.max(0, current);
+    // Over the lane itself (below every card) means the end of it.
+    const index = overIdx >= 0 ? overIdx : over.id === `col-${to}` ? list.length : Math.max(0, current);
     run(Number(active.id), { type: "moveTo", status: to }, index);
   };
 
@@ -241,7 +271,7 @@ export function QueueBoard({ queue, projectName, onChanged, onBack }: {
 
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCorners}
+        collisionDetection={collision}
         onDragStart={onDragStart}
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
