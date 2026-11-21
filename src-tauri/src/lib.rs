@@ -2,6 +2,7 @@ mod commands;
 mod config;
 mod db;
 mod error;
+mod invoice;
 mod library;
 mod models;
 mod repo;
@@ -60,6 +61,10 @@ pub fn run() {
             commands::reveal_item,
             commands::read_model,
             commands::save_thumbnail,
+            commands::list_invoices,
+            commands::create_invoice,
+            commands::update_invoice,
+            commands::delete_invoice,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

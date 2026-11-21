@@ -17,26 +17,32 @@ import {
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
-import { ChevronLeft, ExternalLink, FilePlus2, FileQuestion, Layers, Upload } from "lucide-react";
+import { ChevronLeft, ExternalLink, FilePlus2, FileQuestion, Layers, Receipt, Upload } from "lucide-react";
 import {
   STATUSES,
   SUPPORTED_EXTENSIONS,
+  createInvoice,
   errorText,
   importFiles,
   itemAction,
   itemFromFile,
+  listInvoices,
   listItems,
   listUnassigned,
   openInSlicer,
   updateQueue,
   type Action,
+  type Invoice,
   type Item,
   type Queue,
+  type QueueStats,
   type Status,
 } from "../api";
 import { useLibrary } from "../hooks/useLibrary";
+import { formatMoney } from "../lib/money";
 import { ItemCardView, SortableItemCard } from "./ItemCard";
 import { EntityIcon, IconPicker } from "./Icons";
+import { CreateInvoiceModal, InvoiceSheet } from "./Invoice";
 import { ItemPanel } from "./ItemPanel";
 import { useToast } from "./Toast";
 
@@ -76,8 +82,9 @@ function Column({ status, items, children }: { status: Status; items: Item[]; ch
   );
 }
 
-export function QueueBoard({ queue, projectName, onChanged, onBack }: {
+export function QueueBoard({ queue, stats, projectName, onChanged, onBack }: {
   queue: Queue;
+  stats: QueueStats;
   projectName: string;
   onChanged: () => void;
   onBack: () => void;
@@ -90,6 +97,12 @@ export function QueueBoard({ queue, projectName, onChanged, onBack }: {
   const [openItemId, setOpenItemId] = useState<number | null>(null);
   const [dropping, setDropping] = useState(false);
   const [pickingIcon, setPickingIcon] = useState(false);
+  // Item ids picked for a new invoice; null when not picking.
+  const [picked, setPicked] = useState<Set<number> | null>(null);
+  const [naming, setNaming] = useState(false);
+  const [shownInvoice, setShownInvoice] = useState<Invoice | null>(null);
+  const [invoices, refreshInvoices] = useLibrary(() => listInvoices(queue.projectId), [queue.projectId]);
+  const recipients = [...new Set((invoices ?? []).map((i) => i.recipient).filter(Boolean))];
 
   useEffect(() => setColumns(group(items ?? [])), [items]);
 
@@ -98,10 +111,34 @@ export function QueueBoard({ queue, projectName, onChanged, onBack }: {
   const active = all.find((i) => i.id === activeId) ?? null;
   const openItem = items?.find((i) => i.id === openItemId) ?? null;
   const next = columns.todo[0];
+  const pickedItems = picked ? all.filter((i) => picked.has(i.id)) : [];
+  const pickedTotal = pickedItems.reduce((t, i) => t + (i.priceCents ?? 0), 0);
 
+  const togglePick = (id: number) =>
+    setPicked((cur) => {
+      const set = new Set(cur);
+      if (!set.delete(id)) set.add(id);
+      return set;
+    });
+
+  const makeInvoice = async (recipient: string, note: string) => {
+    try {
+      const invoice = await createInvoice(queue.id, pickedItems.map((i) => i.id), recipient, note);
+      setNaming(false);
+      setPicked(null);
+      setShownInvoice(invoice);
+      refreshInvoices();
+      reloadAll();
+    } catch (e) {
+      toast(errorText(e), "error");
+    }
+  };
+
+  // Also tells the parent, so the sidebar and project totals follow board changes.
   const reloadAll = () => {
     refresh();
     refreshUnassigned();
+    onChanged();
   };
 
   const doImport = async (paths: string[]) => {
@@ -145,7 +182,7 @@ export function QueueBoard({ queue, projectName, onChanged, onBack }: {
     } catch (e) {
       toast(errorText(e), "error");
     }
-    refresh();
+    reloadAll();
   };
 
   const slicer = async (id: number) => {
@@ -241,8 +278,19 @@ export function QueueBoard({ queue, projectName, onChanged, onBack }: {
             </button>
             {queue.name}
           </h1>
+          {(stats.valueCents > 0 || stats.owedCents > 0) && (
+            <div className="money-line">
+              <span>Value <strong>{formatMoney(stats.valueCents)}</strong></span>
+              <span className={stats.owedCents > 0 ? "is-owed" : undefined}>Owed <strong>{formatMoney(stats.owedCents)}</strong></span>
+            </div>
+          )}
         </div>
         <div className="board-toolbar">
+          {!picked && (
+            <button className="btn" onClick={() => setPicked(new Set())} title="Pick items to bill a friend">
+              <Receipt size={15} /> Invoice…
+            </button>
+          )}
           {next && (
             <button className="btn" onClick={() => slicer(next.id)} title={`Open ${next.name} in the slicer`}>
               <ExternalLink size={15} /> Open next in slicer
@@ -253,6 +301,23 @@ export function QueueBoard({ queue, projectName, onChanged, onBack }: {
           </button>
         </div>
       </div>
+
+      {picked && (
+        <div className="banner pick-bar">
+          <Receipt size={16} />
+          <span>
+            <strong>{picked.size}</strong> picked · <strong>{formatMoney(pickedTotal)}</strong>
+          </span>
+          <span className="hint" style={{ margin: 0, flex: 1 }}>Click cards to add them to the invoice.</span>
+          <button className="btn sm ghost" onClick={() => setPicked(new Set(columns.done.filter((i) => !i.invoiced).map((i) => i.id)))}>
+            Pick done, not invoiced
+          </button>
+          <button className="btn sm" onClick={() => setPicked(null)}>Cancel</button>
+          <button className="btn sm primary" disabled={picked.size === 0} onClick={() => setNaming(true)}>
+            Create invoice
+          </button>
+        </div>
+      )}
 
       {unassigned && unassigned.length > 0 && (
         <div className="banner">
@@ -288,8 +353,9 @@ export function QueueBoard({ queue, projectName, onChanged, onBack }: {
                   key={item.id}
                   item={item}
                   isNext={item.id === next?.id}
+                  selected={picked ? picked.has(item.id) : undefined}
                   onAction={(a) => run(item.id, a)}
-                  onOpen={() => setOpenItemId(item.id)}
+                  onOpen={() => (picked ? togglePick(item.id) : setOpenItemId(item.id))}
                   onSlicer={() => slicer(item.id)}
                 />
               ))}
@@ -319,6 +385,27 @@ export function QueueBoard({ queue, projectName, onChanged, onBack }: {
             }
           }}
           onClose={() => setPickingIcon(false)}
+        />
+      )}
+
+      {naming && (
+        <CreateInvoiceModal
+          items={pickedItems}
+          recipients={recipients}
+          onSubmit={makeInvoice}
+          onClose={() => setNaming(false)}
+        />
+      )}
+      {shownInvoice && (
+        <InvoiceSheet
+          invoice={shownInvoice}
+          projectName={projectName}
+          queueName={queue.name}
+          onChanged={() => {
+            refreshInvoices();
+            reloadAll();
+          }}
+          onClose={() => setShownInvoice(null)}
         />
       )}
 

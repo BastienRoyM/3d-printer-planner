@@ -6,11 +6,11 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::error::{AppError, AppResult};
-use crate::models::{Item, ItemPatch, PrintEvent, Project, ProjectSummary, Queue, QueueSummary};
+use crate::models::{Invoice, Item, ItemPatch, PrintEvent, Project, ProjectSummary, Queue, QueueSummary};
 use crate::repo::{self, ImportResult};
 use crate::status::{self, Action};
 use crate::watcher::{self, LibraryWatcher};
-use crate::{config, db, library, slicer, sync};
+use crate::{config, db, invoice, library, slicer, sync};
 
 pub const LIBRARY_CHANGED: &str = "library-changed";
 
@@ -69,6 +69,7 @@ pub struct AppInfo {
     slicer_path: Option<String>,
     detected_slicer: Option<String>,
     theme: String,
+    currency: String,
 }
 
 fn slicer_path(conn: &Connection) -> AppResult<Option<PathBuf>> {
@@ -86,13 +87,14 @@ pub fn get_app_info(state: State<AppState>) -> AppResult<AppInfo> {
             slicer_path: repo::get_setting(conn, "slicer_path")?.filter(|s| !s.is_empty()),
             detected_slicer: slicer::detect().map(|p| p.display().to_string()),
             theme: repo::get_setting(conn, "theme")?.unwrap_or_else(|| "dark".into()),
+            currency: repo::get_setting(conn, "currency")?.unwrap_or_else(|| "CAD".into()),
         })
     })
 }
 
 #[tauri::command]
 pub fn set_setting(state: State<AppState>, key: String, value: String) -> AppResult<()> {
-    if !matches!(key.as_str(), "theme" | "slicer_path") {
+    if !matches!(key.as_str(), "theme" | "slicer_path" | "currency") {
         return Err(AppError::Invalid(format!("unknown setting {key}")));
     }
     state.with(|conn, _| repo::set_setting(conn, &key, &value))
@@ -296,4 +298,36 @@ pub fn save_thumbnail(state: State<AppState>, item_id: i64, data_url: String) ->
         return Err(AppError::Invalid("thumbnail must be an image data URL".into()));
     }
     state.with(|conn, _| repo::set_thumbnail(conn, item_id, &data_url))
+}
+
+#[tauri::command]
+pub fn list_invoices(state: State<AppState>, project_id: i64) -> AppResult<Vec<Invoice>> {
+    state.with(|conn, _| invoice::list(conn, project_id))
+}
+
+#[tauri::command]
+pub fn create_invoice(
+    state: State<AppState>,
+    queue_id: i64,
+    item_ids: Vec<i64>,
+    recipient: String,
+    note: String,
+) -> AppResult<Invoice> {
+    state.with(|conn, _| invoice::create(conn, queue_id, &item_ids, &recipient, &note))
+}
+
+#[tauri::command]
+pub fn update_invoice(
+    state: State<AppState>,
+    id: i64,
+    recipient: Option<String>,
+    note: Option<String>,
+    paid: Option<bool>,
+) -> AppResult<Invoice> {
+    state.with(|conn, _| invoice::update(conn, id, recipient, note, paid))
+}
+
+#[tauri::command]
+pub fn delete_invoice(state: State<AppState>, id: i64) -> AppResult<()> {
+    state.with(|conn, _| invoice::delete(conn, id))
 }

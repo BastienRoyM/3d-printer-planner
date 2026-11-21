@@ -10,7 +10,8 @@ use crate::models::{Item, ItemFile, ItemPatch, Project, ProjectSummary, Queue, Q
 const PROJECT_COLS: &str = "id, name, description, color, icon, folder_rel, archived, created_at";
 const QUEUE_COLS: &str = "id, project_id, name, icon, folder_rel";
 const ITEM_COLS: &str = "id, queue_id, name, status, qty_total, qty_done, copies_per_plate, notes, \
-    est_minutes, printer_id, thumbnail, sort, created_at, updated_at";
+    est_minutes, printer_id, thumbnail, sort, created_at, updated_at, price_cents, grams_used, \
+    minutes_used, EXISTS(SELECT 1 FROM invoice_lines l WHERE l.item_id = items.id)";
 const FILE_COLS: &str = "id, item_id, rel_path, kind, is_original, added_at";
 const STATUS_ORDER: &str =
     "CASE status WHEN 'todo' THEN 0 WHEN 'printing' THEN 1 WHEN 'done' THEN 2 ELSE 3 END";
@@ -72,6 +73,10 @@ fn item_from_row(r: &Row) -> rusqlite::Result<Item> {
         sort: r.get(11)?,
         created_at: r.get(12)?,
         updated_at: r.get(13)?,
+        price_cents: r.get(14)?,
+        grams_used: r.get(15)?,
+        minutes_used: r.get(16)?,
+        invoiced: r.get(17)?,
         files: Vec::new(),
     })
 }
@@ -171,17 +176,34 @@ pub fn list_projects(conn: &Connection) -> AppResult<Vec<ProjectSummary>> {
     )?;
     let mut out = Vec::with_capacity(projects.len());
     for project in projects {
+        let (value_cents, grams_used, minutes_used) = conn.query_row(
+            "SELECT COALESCE(SUM(i.price_cents), 0), COALESCE(SUM(i.grams_used), 0), COALESCE(SUM(i.minutes_used), 0)
+             FROM items i JOIN queues q ON q.id = i.queue_id WHERE q.project_id = ?1",
+            [project.id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?;
+        let paid_cents = conn.query_row(
+            "SELECT COALESCE(SUM(l.price_cents), 0) FROM invoice_lines l JOIN invoices v ON v.id = l.invoice_id
+             WHERE v.project_id = ?1 AND v.paid = 1",
+            [project.id],
+            |r| r.get(0),
+        )?;
         let queues = project_queues(conn, project.id)?
             .into_iter()
             .map(|q| queue_stats(conn, q))
             .collect::<AppResult<_>>()?;
         let mut s = ProjectSummary {
-            project,
             total_prints: 0,
             done_prints: 0,
             items_total: 0,
             items_done: 0,
             remaining_minutes: 0,
+            value_cents,
+            owed_cents: owed(conn, "project_id", project.id)?,
+            paid_cents,
+            grams_used,
+            minutes_used,
+            project,
             queues,
         };
         let rows = items.query_map([s.project.id], |r| {
@@ -273,19 +295,33 @@ fn project_queues(conn: &Connection, project_id: i64) -> AppResult<Vec<Queue>> {
     Ok(queues)
 }
 
+/// Total of the unpaid invoices whose `column` (project_id or queue_id) is `id`.
+fn owed(conn: &Connection, column: &str, id: i64) -> AppResult<i64> {
+    Ok(conn.query_row(
+        &format!(
+            "SELECT COALESCE(SUM(l.price_cents), 0) FROM invoice_lines l JOIN invoices v ON v.id = l.invoice_id
+             WHERE v.{column} = ?1 AND v.paid = 0"
+        ),
+        [id],
+        |r| r.get(0),
+    )?)
+}
+
 fn queue_stats(conn: &Connection, queue: Queue) -> AppResult<QueueStats> {
-    let (total_prints, done_prints, printing_count) = conn.query_row(
+    let (total_prints, done_prints, printing_count, value_cents) = conn.query_row(
         "SELECT COALESCE(SUM(qty_total), 0), COALESCE(SUM(qty_done), 0),
-                COALESCE(SUM(status = 'printing'), 0)
+                COALESCE(SUM(status = 'printing'), 0), COALESCE(SUM(price_cents), 0)
          FROM items WHERE queue_id = ?1",
         [queue.id],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
     )?;
     Ok(QueueStats {
+        owed_cents: owed(conn, "queue_id", queue.id)?,
         queue,
         total_prints,
         done_prints,
         printing_count,
+        value_cents,
     })
 }
 
@@ -293,27 +329,16 @@ pub fn list_queues(conn: &Connection, project_id: i64) -> AppResult<Vec<QueueSum
     let queues = project_queues(conn, project_id)?;
     let mut out = Vec::with_capacity(queues.len());
     for queue in queues {
-        let QueueStats {
-            queue,
-            total_prints,
-            done_prints,
-            printing_count,
-        } = queue_stats(conn, queue)?;
+        let stats = queue_stats(conn, queue)?;
         let next_id: Option<i64> = conn
             .query_row(
                 "SELECT id FROM items WHERE queue_id = ?1 AND status = 'todo' ORDER BY sort, id LIMIT 1",
-                [queue.id],
+                [stats.queue.id],
                 |r| r.get(0),
             )
             .optional()?;
         let next_item = next_id.map(|id| get_item(conn, id)).transpose()?;
-        out.push(QueueSummary {
-            queue,
-            total_prints,
-            done_prints,
-            printing_count,
-            next_item,
-        });
+        out.push(QueueSummary { stats, next_item });
     }
     Ok(out)
 }
@@ -417,7 +442,8 @@ pub fn update_item(conn: &Connection, id: i64, patch: &ItemPatch) -> AppResult<I
     let cpp = patch.copies_per_plate.unwrap_or(cur.copies_per_plate).max(1);
     conn.execute(
         "UPDATE items SET name = ?2, qty_total = ?3, qty_done = ?4, copies_per_plate = ?5,
-            notes = ?6, est_minutes = ?7, updated_at = datetime('now')
+            notes = ?6, est_minutes = ?7, price_cents = ?8, grams_used = ?9, minutes_used = ?10,
+            updated_at = datetime('now')
          WHERE id = ?1",
         params![
             id,
@@ -427,6 +453,9 @@ pub fn update_item(conn: &Connection, id: i64, patch: &ItemPatch) -> AppResult<I
             cpp,
             patch.notes.clone().unwrap_or(cur.notes),
             patch.est_minutes.unwrap_or(cur.est_minutes).map(|v| v.max(0)),
+            patch.price_cents.unwrap_or(cur.price_cents).map(|v| v.max(0)),
+            patch.grams_used.unwrap_or(cur.grams_used).map(|v| v.max(0)),
+            patch.minutes_used.unwrap_or(cur.minutes_used).map(|v| v.max(0)),
         ],
     )?;
     get_item(conn, id)

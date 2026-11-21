@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Boxes, ChevronRight, Layers, Plus, Settings } from "lucide-react";
+import { BarChart3, Boxes, ChevronRight, Layers, Plus, Settings } from "lucide-react";
 import type { ProjectSummary } from "../api";
 import { percent } from "../lib/progress";
 import { AppLogo } from "./AppLogo";
@@ -16,12 +16,14 @@ function loadCollapsed(): Set<number> {
   }
 }
 
-export function Sidebar({ projects, projectId, queueId, onSelectProject, onSelectQueue, onNew, onSettings }: {
+export function Sidebar({ projects, projectId, queueId, statsOpen, onSelectProject, onSelectQueue, onStats, onNew, onSettings }: {
   projects: ProjectSummary[] | undefined;
   projectId: number | null;
   queueId: number | null;
+  statsOpen: boolean;
   onSelectProject: (id: number) => void;
   onSelectQueue: (projectId: number, queueId: number) => void;
+  onStats: () => void;
   onNew: () => void;
   onSettings: () => void;
 }) {
@@ -121,6 +123,9 @@ export function Sidebar({ projects, projectId, queueId, onSelectProject, onSelec
         )}
       </div>
 
+      <button className={`sidebar-settings${statsOpen ? " is-selected" : ""}`} onClick={onStats}>
+        <BarChart3 size={16} /> Stats
+      </button>
       <button className="sidebar-settings" onClick={onSettings}>
         <Settings size={16} /> Settings
       </button>

@@ -5,17 +5,21 @@ import {
   deleteProject,
   deleteQueue,
   errorText,
+  listInvoices,
   listQueues,
   openInSlicer,
   updateProject,
   updateQueue,
+  type Invoice,
   type ProjectSummary,
   type QueueSummary,
 } from "../api";
 import { useLibrary } from "../hooks/useLibrary";
-import { formatMinutes } from "../lib/format";
+import { formatGrams, formatMinutes } from "../lib/format";
+import { formatMoney } from "../lib/money";
 import { percent } from "../lib/progress";
 import { EntityIcon, IconPicker } from "./Icons";
+import { InvoiceSheet, invoiceDate } from "./Invoice";
 import { Menu } from "./Menu";
 import { ConfirmModal, PromptModal } from "./Modal";
 import { LayerBar } from "./ProgressBar";
@@ -42,6 +46,8 @@ export function ProjectView({ summary, onOpenQueue, onChanged }: {
   const { project } = summary;
   const toast = useToast();
   const [queues, refreshQueues] = useLibrary(() => listQueues(project.id), [project.id]);
+  const [invoices, refreshInvoices] = useLibrary(() => listInvoices(project.id), [project.id]);
+  const [shownInvoice, setShownInvoice] = useState<Invoice | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [description, setDescription] = useState(project.description);
 
@@ -127,7 +133,25 @@ export function ProjectView({ summary, onOpenQueue, onChanged }: {
           <div className="label">Print time left</div>
           <div className="value">{summary.remainingMinutes ? formatMinutes(summary.remainingMinutes) : "—"}</div>
         </div>
+        <div>
+          <div className="label">Value</div>
+          <div className="value">{summary.valueCents ? formatMoney(summary.valueCents) : "—"}</div>
+        </div>
+        <div>
+          <div className="label">Owed to you</div>
+          <div className={`value${summary.owedCents > 0 ? " is-owed" : ""}`}>
+            {summary.owedCents ? formatMoney(summary.owedCents) : "—"}
+          </div>
+        </div>
       </div>
+
+      {(summary.gramsUsed > 0 || summary.minutesUsed > 0 || summary.paidCents > 0) && (
+        <div className="usage-line">
+          <span>Filament used <strong>{formatGrams(summary.gramsUsed)}</strong></span>
+          <span>Print time <strong>{formatMinutes(summary.minutesUsed)}</strong></span>
+          <span>Paid back <strong>{formatMoney(summary.paidCents)}</strong></span>
+        </div>
+      )}
 
       <div className="section-head">
         <h2>Queues</h2>
@@ -160,6 +184,7 @@ export function ProjectView({ summary, onOpenQueue, onChanged }: {
             <div className="queue-stats">
               <span>{q.donePrints}/{q.totalPrints} printed</span>
               {q.printingCount > 0 && <span className="printing">{q.printingCount} printing</span>}
+              {q.owedCents > 0 && <span className="is-owed">{formatMoney(q.owedCents)} owed</span>}
             </div>
             {q.nextItem ? (
               <div className="next-up">
@@ -189,6 +214,42 @@ export function ProjectView({ summary, onOpenQueue, onChanged }: {
           <span className="row"><Plus size={16} /> New queue</span>
         </button>
       </div>
+
+      {invoices && invoices.length > 0 && (
+        <>
+          <div className="section-head" style={{ marginTop: 28 }}>
+            <h2>Invoices</h2>
+          </div>
+          <ul className="invoice-list">
+            {invoices.map((inv) => (
+              <li key={inv.id}>
+                <button className="invoice-row" onClick={() => setShownInvoice(inv)}>
+                  <span className="invoice-row-who">{inv.recipient || "No name"}</span>
+                  <span className="muted">
+                    #{inv.id} · {invoiceDate(inv.createdAt)} · {queues?.find((q) => q.queue.id === inv.queueId)?.queue.name ?? "Deleted queue"}
+                    {" · "}{inv.lines.length} item{inv.lines.length > 1 ? "s" : ""}
+                  </span>
+                  <span className={`invoice-status ${inv.paid ? "is-paid" : "is-owed"}`}>{inv.paid ? "Paid" : "Owed"}</span>
+                  <span className="invoice-row-total">{formatMoney(inv.totalCents)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {shownInvoice && (
+        <InvoiceSheet
+          invoice={shownInvoice}
+          projectName={project.name}
+          queueName={queues?.find((q) => q.queue.id === shownInvoice.queueId)?.queue.name}
+          onChanged={() => {
+            refreshInvoices();
+            onChanged();
+          }}
+          onClose={() => setShownInvoice(null)}
+        />
+      )}
 
       {dialog?.kind === "new-queue" && (
         <PromptModal

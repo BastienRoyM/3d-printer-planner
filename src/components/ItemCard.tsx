@@ -1,14 +1,17 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Check, ExternalLink, Play, RotateCcw, X } from "lucide-react";
+import { Check, ExternalLink, Play, RotateCcw, Square, SquareCheck, X } from "lucide-react";
 import type { Action, Item } from "../api";
+import { formatMoney } from "../lib/money";
 import { LayerBar } from "./ProgressBar";
 import { Thumbnail } from "./Thumbnail";
 
-export function ItemCardView({ item, isNext, overlay, onAction, onOpen, onSlicer }: {
+export function ItemCardView({ item, isNext, overlay, selected, onAction, onOpen, onSlicer }: {
   item: Item;
   isNext?: boolean;
   overlay?: boolean;
+  /** Set while picking items for an invoice: the card shows a checkbox and `onOpen` toggles it. */
+  selected?: boolean;
   onAction?: (a: Action) => void;
   onOpen?: () => void;
   onSlicer?: () => void;
@@ -19,18 +22,31 @@ export function ItemCardView({ item, isNext, overlay, onAction, onOpen, onSlicer
   };
 
   return (
-    <div className={`card${isNext ? " is-next" : ""}${overlay ? " is-overlay" : ""}`} onClick={onOpen}>
-      {isNext && <span className="card-next">Next up</span>}
+    <div
+      className={`card${isNext ? " is-next" : ""}${overlay ? " is-overlay" : ""}${selected ? " is-selected" : ""}`}
+      onClick={onOpen}
+    >
+      {isNext && selected === undefined && <span className="card-next">Next up</span>}
+      {selected !== undefined && (
+        <span className="card-check" role="checkbox" aria-checked={selected} aria-label={`Select ${item.name}`}>
+          {selected ? <SquareCheck size={18} /> : <Square size={18} />}
+        </span>
+      )}
       <Thumbnail item={item} />
       <div className="card-body">
         <div className="card-name" title={item.name}>{item.name}</div>
         <div className="card-qty">
           <span>{item.qtyDone}/{item.qtyTotal}</span>
           <LayerBar done={item.qtyDone} total={item.qtyTotal} size="sm" />
+          {item.priceCents != null && (
+            <span className={`card-price${item.invoiced ? " is-invoiced" : ""}`} title={item.invoiced ? "On an invoice" : "Price"}>
+              {formatMoney(item.priceCents)}
+            </span>
+          )}
         </div>
       </div>
       {/* Spans the whole card under the thumbnail so the buttons fit narrow columns. */}
-      {onAction && (
+      {onAction && selected === undefined && (
         <div className="card-actions" onPointerDown={(e) => e.stopPropagation()}>
           {item.status === "todo" && (
             <>
@@ -67,6 +83,8 @@ export function SortableItemCard(props: Parameters<typeof ItemCardView>[0]) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: props.item.id,
     data: { status: props.item.status },
+    // No dragging while picking items for an invoice: a click there only toggles the card.
+    disabled: props.selected !== undefined,
   });
   return (
     <div

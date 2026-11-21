@@ -2,6 +2,7 @@ import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderOpen, Moon, Sun } from "lucide-react";
 import { errorText, moveLibrary, setSetting, type AppInfo } from "../api";
+import { CURRENCIES } from "../lib/money";
 import { Modal } from "./Modal";
 import { useToast } from "./Toast";
 
@@ -81,6 +82,24 @@ export function SettingsDialog({ info, onChanged, onClose }: {
         <button className="btn" onClick={pickLibrary} disabled={moving}>
           <FolderOpen size={16} /> {moving ? "Moving…" : "Move library…"}
         </button>
+      </section>
+
+      <section className="setting">
+        <div>
+          <h3>Currency</h3>
+          <p className="hint">Used for item prices and invoices.</p>
+        </div>
+        <select
+          className="btn"
+          value={info.currency}
+          aria-label="Currency"
+          onChange={async (e) => {
+            await setSetting("currency", e.target.value);
+            onChanged();
+          }}
+        >
+          {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
       </section>
 
       <section className="setting">

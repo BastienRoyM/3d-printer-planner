@@ -22,6 +22,16 @@ pub struct ProjectSummary {
     pub items_total: i64,
     pub items_done: i64,
     pub remaining_minutes: i64,
+    /// Sum of item prices.
+    pub value_cents: i64,
+    /// Sum of unpaid invoices.
+    pub owed_cents: i64,
+    /// Sum of paid invoices.
+    pub paid_cents: i64,
+    /// Sum of item grams used.
+    pub grams_used: i64,
+    /// Sum of item print times, in minutes.
+    pub minutes_used: i64,
     pub queues: Vec<QueueStats>,
 }
 
@@ -43,15 +53,15 @@ pub struct QueueStats {
     pub total_prints: i64,
     pub done_prints: i64,
     pub printing_count: i64,
+    pub value_cents: i64,
+    pub owed_cents: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueueSummary {
-    pub queue: Queue,
-    pub total_prints: i64,
-    pub done_prints: i64,
-    pub printing_count: i64,
+    #[serde(flatten)]
+    pub stats: QueueStats,
     pub next_item: Option<Item>,
 }
 
@@ -78,6 +88,14 @@ pub struct Item {
     pub copies_per_plate: i64,
     pub notes: String,
     pub est_minutes: Option<i64>,
+    /// Total price for the whole item, all copies.
+    pub price_cents: Option<i64>,
+    /// Total filament the item used, all copies.
+    pub grams_used: Option<i64>,
+    /// Total time the item took to print, all copies, in minutes.
+    pub minutes_used: Option<i64>,
+    /// Whether the item is on at least one invoice.
+    pub invoiced: bool,
     pub printer_id: Option<i64>,
     pub thumbnail: Option<String>,
     pub sort: i64,
@@ -108,6 +126,37 @@ pub struct ItemPatch {
     pub notes: Option<String>,
     #[serde(default, with = "double_option")]
     pub est_minutes: Option<Option<i64>>,
+    #[serde(default, with = "double_option")]
+    pub price_cents: Option<Option<i64>>,
+    #[serde(default, with = "double_option")]
+    pub grams_used: Option<Option<i64>>,
+    #[serde(default, with = "double_option")]
+    pub minutes_used: Option<Option<i64>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InvoiceLine {
+    pub id: i64,
+    pub item_id: Option<i64>,
+    pub name: String,
+    pub qty: i64,
+    pub grams: Option<i64>,
+    pub price_cents: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Invoice {
+    pub id: i64,
+    pub project_id: i64,
+    pub queue_id: Option<i64>,
+    pub recipient: String,
+    pub note: String,
+    pub paid: bool,
+    pub created_at: String,
+    pub total_cents: i64,
+    pub lines: Vec<InvoiceLine>,
 }
 
 mod double_option {

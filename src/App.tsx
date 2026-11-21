@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 import { Layers, Plus } from "lucide-react";
 import { createProject, errorText, getAppInfo, listProjects, listQueues } from "./api";
 import { useLibrary } from "./hooks/useLibrary";
+import { setCurrency } from "./lib/money";
 import { Sidebar } from "./components/Sidebar";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { PromptModal } from "./components/Modal";
 import { ToastProvider, useToast } from "./components/Toast";
 import { ProjectView } from "./components/ProjectView";
 import { QueueBoard } from "./components/QueueBoard";
+import { StatsView } from "./components/StatsView";
 
 type View = { projectId: number; queueId: number | null } | null;
 
@@ -16,11 +18,19 @@ function Shell() {
   const [projects, refreshProjects] = useLibrary(listProjects, []);
   const [info, refreshInfo] = useLibrary(getAppInfo, []);
   const [view, setView] = useState<View>(null);
+  const [statsOpen, setStatsOpen] = useState(false);
+  const open = (v: View) => {
+    setStatsOpen(false);
+    setView(v);
+  };
   const [dialog, setDialog] = useState<"new-project" | "settings" | null>(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = info?.theme ?? "dark";
   }, [info?.theme]);
+
+  // Set during render, not in an effect, so prices format right on the very first paint.
+  if (info) setCurrency(info.currency);
 
   // Open the first active project on start, and leave a project that was deleted.
   useEffect(() => {
@@ -47,15 +57,19 @@ function Shell() {
     <div className="app">
       <Sidebar
         projects={projects}
-        projectId={view?.projectId ?? null}
-        queueId={view?.queueId ?? null}
-        onSelectProject={(id) => setView({ projectId: id, queueId: null })}
-        onSelectQueue={(projectId, queueId) => setView({ projectId, queueId })}
+        projectId={statsOpen ? null : view?.projectId ?? null}
+        queueId={statsOpen ? null : view?.queueId ?? null}
+        statsOpen={statsOpen}
+        onSelectProject={(id) => open({ projectId: id, queueId: null })}
+        onSelectQueue={(projectId, queueId) => open({ projectId, queueId })}
+        onStats={() => setStatsOpen(true)}
         onNew={() => setDialog("new-project")}
         onSettings={() => setDialog("settings")}
       />
       <main className="main">
-        {selected ? (
+        {statsOpen && projects ? (
+          <StatsView projects={projects} onOpenProject={(id) => open({ projectId: id, queueId: null })} />
+        ) : selected ? (
           view?.queueId != null ? (
             <QueueRoute
               projectId={selected.project.id}
@@ -109,7 +123,8 @@ function QueueRoute({ projectId, queueId, projectName, onChanged, onBack }: {
   onBack: () => void;
 }) {
   const [queues, refreshQueues] = useLibrary(() => listQueues(projectId), [projectId]);
-  const queue = queues?.find((q) => q.queue.id === queueId)?.queue;
+  const summary = queues?.find((q) => q.queue.id === queueId);
+  const queue = summary?.queue;
   useEffect(() => {
     if (queues && !queue) onBack();
   }, [queues, queue, onBack]);
@@ -117,8 +132,8 @@ function QueueRoute({ projectId, queueId, projectName, onChanged, onBack }: {
     refreshQueues();
     onChanged();
   };
-  return queue ? (
-    <QueueBoard key={queue.id} queue={queue} projectName={projectName} onChanged={changed} onBack={onBack} />
+  return queue && summary ? (
+    <QueueBoard key={queue.id} queue={queue} stats={summary} projectName={projectName} onChanged={changed} onBack={onBack} />
   ) : null;
 }
 

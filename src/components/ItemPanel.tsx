@@ -14,7 +14,8 @@ import {
   type ItemPatch,
   type PrintEvent,
 } from "../api";
-import { formatMinutes } from "../lib/format";
+import { formatMinutes, parseDuration } from "../lib/format";
+import { centsToInput, formatMoney, parseMoney } from "../lib/money";
 import { modelExt } from "../lib/thumbnail";
 import { platesRemaining } from "../lib/progress";
 import { ConfirmModal } from "./Modal";
@@ -58,6 +59,52 @@ function NumberField({ label, value, min, onSave, suffix }: {
         type="number"
         min={min}
         value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      />
+    </label>
+  );
+}
+
+function MoneyField({ label, cents, onSave }: { label: string; cents: number | null; onSave: (v: number | null) => void }) {
+  const [text, setText] = useState(centsToInput(cents));
+  useEffect(() => setText(centsToInput(cents)), [cents]);
+  const commit = () => {
+    const v = parseMoney(text);
+    if (v !== cents && !Number.isNaN(v)) onSave(v);
+    else setText(centsToInput(cents));
+  };
+  return (
+    <label className="field">
+      <span>{label}{cents != null && <em className="hint" style={{ fontStyle: "normal" }}> ({formatMoney(cents)})</em>}</span>
+      <input
+        inputMode="decimal"
+        value={text}
+        placeholder="0.00"
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      />
+    </label>
+  );
+}
+
+function DurationField({ label, minutes, onSave }: { label: string; minutes: number | null; onSave: (v: number | null) => void }) {
+  const show = (m: number | null) => (m == null ? "" : formatMinutes(m));
+  const [text, setText] = useState(show(minutes));
+  useEffect(() => setText(show(minutes)), [minutes]);
+  const commit = () => {
+    const v = parseDuration(text);
+    if (v !== minutes && !Number.isNaN(v)) onSave(v);
+    else setText(show(minutes));
+  };
+  return (
+    <label className="field">
+      <span>{label}<em className="hint" style={{ fontStyle: "normal" }}> (total)</em></span>
+      <input
+        value={text}
+        placeholder="3h 20m"
         onChange={(e) => setText(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
@@ -197,6 +244,19 @@ export function ItemPanel({ item, unassigned, onChanged, onClose }: {
               <RotateCcw size={13} /> Reset progress
             </button>
           )}
+        </section>
+
+        <section>
+          <h3>
+            Price and usage
+            {item.invoiced && <span className="tag">Invoiced</span>}
+          </h3>
+          <div className="grid2">
+            <MoneyField label="Total price" cents={item.priceCents} onSave={(v) => save({ priceCents: v })} />
+            <NumberField label="Grams used" suffix="(total)" value={item.gramsUsed} onSave={(v) => save({ gramsUsed: v })} />
+            <DurationField label="Print time" minutes={item.minutesUsed} onSave={(v) => save({ minutesUsed: v })} />
+          </div>
+          <p className="hint">For the whole item, all {item.qtyTotal} cop{item.qtyTotal === 1 ? "y" : "ies"}. Invoices copy these when you create them.</p>
         </section>
 
         <section>

@@ -81,6 +81,36 @@ UPDATE items SET thumbnail = NULL
 WHERE id IN (SELECT item_id FROM item_files WHERE is_original = 1 AND lower(rel_path) LIKE '%.3mf');
 ";
 
+// What an item costs, the filament and time it took, and simple invoices for friends.
+// Invoice lines copy the item's name, price and grams so an invoice never changes afterwards.
+const SCHEMA_V3: &str = "
+ALTER TABLE items ADD COLUMN price_cents INTEGER;
+ALTER TABLE items ADD COLUMN grams_used INTEGER;
+ALTER TABLE items ADD COLUMN minutes_used INTEGER;
+CREATE TABLE invoices (
+    id INTEGER PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    queue_id INTEGER REFERENCES queues(id) ON DELETE SET NULL,
+    recipient TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    paid INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE invoice_lines (
+    id INTEGER PRIMARY KEY,
+    invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+    item_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
+    name TEXT NOT NULL,
+    qty INTEGER NOT NULL,
+    grams INTEGER,
+    price_cents INTEGER NOT NULL DEFAULT 0,
+    sort INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_invoices_project ON invoices(project_id);
+CREATE INDEX idx_lines_invoice ON invoice_lines(invoice_id);
+CREATE INDEX idx_lines_item ON invoice_lines(item_id);
+";
+
 /// Opens (creating if needed) the library database and brings its schema up to date.
 pub fn open(path: &Path) -> AppResult<Connection> {
     if let Some(parent) = path.parent() {
@@ -100,6 +130,9 @@ pub fn migrate(conn: &Connection) -> AppResult<()> {
     if version < 2 {
         conn.execute_batch(&format!("BEGIN; {SCHEMA_V2} PRAGMA user_version = 2; COMMIT;"))?;
     }
+    if version < 3 {
+        conn.execute_batch(&format!("BEGIN; {SCHEMA_V3} PRAGMA user_version = 3; COMMIT;"))?;
+    }
     Ok(())
 }
 
@@ -114,7 +147,7 @@ mod tests {
         drop(open(&path).unwrap());
         let conn = open(&path).unwrap();
         let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(v, 2);
+        assert_eq!(v, 3);
     }
 
     #[test]

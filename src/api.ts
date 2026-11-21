@@ -22,6 +22,16 @@ export interface ProjectSummary {
   itemsTotal: number;
   itemsDone: number;
   remainingMinutes: number;
+  /** Sum of item prices. */
+  valueCents: number;
+  /** Sum of unpaid invoices. */
+  owedCents: number;
+  /** Sum of paid invoices. */
+  paidCents: number;
+  /** Sum of item grams used. */
+  gramsUsed: number;
+  /** Sum of item print times, in minutes. */
+  minutesUsed: number;
   queues: QueueStats[];
 }
 
@@ -38,6 +48,8 @@ export interface QueueStats {
   totalPrints: number;
   donePrints: number;
   printingCount: number;
+  valueCents: number;
+  owedCents: number;
 }
 
 export interface QueueSummary extends QueueStats {
@@ -63,6 +75,14 @@ export interface Item {
   copiesPerPlate: number;
   notes: string;
   estMinutes: number | null;
+  /** Total price for the whole item, all copies. */
+  priceCents: number | null;
+  /** Total filament used, all copies. */
+  gramsUsed: number | null;
+  /** Total print time, all copies, in minutes. */
+  minutesUsed: number | null;
+  /** On at least one invoice. */
+  invoiced: boolean;
   printerId: number | null;
   thumbnail: string | null;
   sort: number;
@@ -83,7 +103,7 @@ export interface PrintEvent {
 export type ItemPatch = Partial<
   Pick<
     Item,
-    "name" | "qtyTotal" | "qtyDone" | "copiesPerPlate" | "notes" | "estMinutes"
+    "name" | "qtyTotal" | "qtyDone" | "copiesPerPlate" | "notes" | "estMinutes" | "priceCents" | "gramsUsed" | "minutesUsed"
   >
 >;
 
@@ -99,6 +119,28 @@ export interface AppInfo {
   slicerPath: string | null;
   detectedSlicer: string | null;
   theme: "dark" | "light";
+  currency: string;
+}
+
+export interface InvoiceLine {
+  id: number;
+  itemId: number | null;
+  name: string;
+  qty: number;
+  grams: number | null;
+  priceCents: number;
+}
+
+export interface Invoice {
+  id: number;
+  projectId: number;
+  queueId: number | null;
+  recipient: string;
+  note: string;
+  paid: boolean;
+  createdAt: string;
+  totalCents: number;
+  lines: InvoiceLine[];
 }
 
 export interface ImportResult {
@@ -109,7 +151,7 @@ export interface ImportResult {
 export const SUPPORTED_EXTENSIONS = ["stl", "3mf", "obj", "step", "stp", "amf", "gcode"];
 
 export const getAppInfo = () => invoke<AppInfo>("get_app_info");
-export const setSetting = (key: "theme" | "slicer_path", value: string) =>
+export const setSetting = (key: "theme" | "slicer_path" | "currency", value: string) =>
   invoke<void>("set_setting", { key, value });
 export const moveLibrary = (newPath: string) =>
   invoke<{ libraryPath: string; warning: string | null }>("move_library", { newPath });
@@ -147,6 +189,13 @@ export const revealItem = (itemId: number) => invoke<void>("reveal_item", { item
 export const readModel = (itemId: number) => invoke<ArrayBuffer>("read_model", { itemId });
 export const saveThumbnail = (itemId: number, dataUrl: string) =>
   invoke<void>("save_thumbnail", { itemId, dataUrl });
+
+export const listInvoices = (projectId: number) => invoke<Invoice[]>("list_invoices", { projectId });
+export const createInvoice = (queueId: number, itemIds: number[], recipient: string, note: string) =>
+  invoke<Invoice>("create_invoice", { queueId, itemIds, recipient, note });
+export const updateInvoice = (id: number, patch: { recipient?: string; note?: string; paid?: boolean }) =>
+  invoke<Invoice>("update_invoice", { id, ...patch });
+export const deleteInvoice = (id: number) => invoke<void>("delete_invoice", { id });
 
 export const onLibraryChanged = (cb: () => void): Promise<UnlistenFn> => listen("library-changed", cb);
 
